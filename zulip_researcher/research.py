@@ -53,7 +53,7 @@ MirrorTopic = Callable[[str, str], None]
 
 # Single-pass research toolset: everything the agent needs to fetch, grep and write —
 # but NOT `task` (no sub-agents) or `todo`/`computer`/`python`.
-RESEARCH_TOOLS = "read,bash,edit,write,grep,glob,web_search,browser"
+RESEARCH_TOOLS = "read,bash,edit,write,grep,glob,web_search"
 _TOOL_EMOJI = {"read": "📖", "bash": "🖥️", "edit": "✍️", "write": "✍️",
                "grep": "🔎", "glob": "🔎", "web_search": "🌐", "browser": "🌐"}
 OmpAsk = Callable[[str], str]
