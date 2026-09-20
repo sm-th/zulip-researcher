@@ -8,6 +8,7 @@ pure function (`classify`) so it can be tested without any I/O.
 from __future__ import annotations
 
 import time
+import sys
 from dataclasses import dataclass
 
 from . import config, zulip
@@ -110,6 +111,14 @@ class Loop:
             self.zc.add_reaction(t.message_id, DONE)
         return action
 
+    def _safe_dispatch(self, t: Trigger) -> str:
+        try:
+            return self.dispatch(t)
+        except Exception as e:  # a failing/unavailable mode must not kill the listener
+            print(f"[researcher] dispatch failed for {t.stream}/{t.topic}: {e}",
+                  file=sys.stderr, flush=True)
+            return IGNORE
+
     # --- event parsing ---
 
     def _trigger_from_event(self, event: dict) -> Trigger | None:
@@ -158,7 +167,7 @@ class Loop:
                 is_mention=False,
                 is_topic_start=True,
             )
-            if self.dispatch(t) != IGNORE:
+            if self._safe_dispatch(t) != IGNORE:
                 handled += 1
         return handled
 
@@ -178,7 +187,7 @@ class Loop:
                 for event in events:
                     t = self._trigger_from_event(event)
                     if t is not None:
-                        self.dispatch(t)
+                        self._safe_dispatch(t)
             except zulip.ZulipError:
                 time.sleep(self.cfg.poll_interval)
                 reg = self.zc.register_event_queue(event_types=["message"])
