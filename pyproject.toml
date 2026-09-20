@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zulip-researcher"
+version = "0.1.0"
+description = "Recommend research questions from Zulip and publish deep research to Smith Wiki and Bluesky"
+requires-python = ">=3.11"
+dependencies = [
+    "zulip>=0.9",
+    "requests>=2.28",
+]
+
+[project.scripts]
+"zulip-researcher" = "zulip_researcher.__main__:main"
+
+[tool.setuptools]
+packages = ["zulip_researcher"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

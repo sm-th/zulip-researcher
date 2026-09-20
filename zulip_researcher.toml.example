@@ -1,0 +1,37 @@
+# Copy to zulip_researcher.toml (git-ignored) and fill in your real values there.
+# This example ships GENERIC PLACEHOLDERS ONLY — no real URLs, domains, handles, or
+# machine paths ever go in a committed file. Non-secret structure only; secrets come
+# from the environment (secretspec). Every key here is overridable by a RESEARCHER_* env var.
+
+# --- Zulip ---
+research_stream = "research"          # the #research stream
+mention_name    = "research"          # the @research bot mention
+operator_email  = "you@example.com"   # only this user's messages/curation count
+general_topic   = "general"
+
+# --- preparation interface ---
+prepare_policy = "faithful-en-v1"
+prepare_format = "markdown"
+
+# --- wiki repo (edited via PR) ---
+wiki_repo_url     = "https://github.com/you/your-wiki.git"
+wiki_clone_dir    = "~/wiki"
+wiki_base_branch  = "main"
+wiki_pages_subdir = "site"
+wiki_site_url     = "https://wiki.example.com"
+
+# --- Bluesky publishing repos (one per identity) ---
+bluesky_operator_repo_url = "https://github.com/you/your-bluesky-operator.git"
+bluesky_agent_repo_url    = "https://github.com/you/your-bluesky-agent.git"
+bluesky_clone_dir         = "~/bluesky"
+bluesky_posts_subdir      = "posts"
+bluesky_branch            = "main"
+
+# --- git identity ---
+git_user_name  = "research agent"
+git_user_email = "agent@example.com"
+
+# --- behaviour ---
+poll_interval       = 60
+wiki_ready_timeout  = 600
+wiki_ready_interval = 10
