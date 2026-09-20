@@ -13,7 +13,7 @@ class FakeWiki:
         self.calls = []
         self._changes = changes
 
-    def prepare(self, clone_dir, repo_url, base, branch, token, name, email):
+    def prepare(self, clone_dir, repo_url, base, branch, token, name, email, resume=False):
         self.calls.append(("prepare", branch))
 
     def has_changes(self, clone_dir):
