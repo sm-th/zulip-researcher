@@ -80,7 +80,7 @@ class Research:
         branch = f"researcher/{s}"
 
         self.wiki.prepare(cfg.wiki_clone_dir, cfg.wiki_repo_url, cfg.wiki_base_branch,
-                          branch, cfg.push_token, cfg.git_user_name, cfg.git_user_email,
+                          branch, cfg.wiki_push_token, cfg.git_user_name, cfg.git_user_email,
                           resume=resume)
 
         task = (SYSTEM % {"slug": s}) + f"\n\nQUESTION:\n{question}\n"
@@ -119,7 +119,7 @@ class Research:
     def _open_pr(self, branch: str, question: str, page_url: str) -> str:
         try:
             return self.open_pr(
-                github.repo_slug(self.cfg.wiki_repo_url), token=self.cfg.push_token,
+                github.repo_slug(self.cfg.wiki_repo_url), token=self.cfg.wiki_push_token,
                 head=branch, base=self.cfg.wiki_base_branch,
                 title=question[:72], body=f"Research for: {question}\n\nPage: {page_url}",
             )
