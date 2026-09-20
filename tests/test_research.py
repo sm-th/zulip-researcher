@@ -203,3 +203,29 @@ def test_slug_falls_back_to_hash_for_non_ascii_input():
     s = slug("Δοκιμή τίτλος με ερώτημα;")
     assert s
     assert re.fullmatch(r"[a-z0-9][a-z0-9-]*", s)
+
+
+def test_research_ingests_attached_link():
+    zc = FakeZulip({"content": "https://example.com/paper — worth a look"})
+    fw = FakeWiki()
+    seen = {}
+
+    class LinkPrepare:
+        def prepare(self, body, title=None, policy=None, fmt=None):
+            return types.SimpleNamespace(title="Example Paper",
+                                          body="https://example.com/paper — worth a look")
+
+    def fake_omp(task, **kw):
+        seen["task"] = task
+        return ('{"type":"message_end","message":{"role":"assistant","content":'
+                '[{"type":"text","text":"Summarized."}]}}')
+
+    t = Trigger(stream="research", topic="general chat", author_id=7, message_id=9,
+                is_mention=False, is_topic_start=True)
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
+             open_pr=lambda *a, **k: "", prepare=LinkPrepare()).research(t)
+
+    task = seen["task"]
+    assert "https://example.com/paper" in task
+    assert "to ingest" in task
+    assert "type: concept" in task    # concept cards requested (issue #48)

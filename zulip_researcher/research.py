@@ -102,6 +102,21 @@ class Research:
         task = (SYSTEM % {"slug": s}) + f"\n\nQUESTION:\n{question}\n"
         if detail and detail != question:
             task += f"\nDetails:\n{detail}\n"
+        links = _urls(f"{opening}\n{detail}")
+        if links:
+            task += (
+                "\nAttached link(s) to ingest — treat this as the primary task:\n"
+                + "\n".join(f"- {u}" for u in links)
+                + "\nFor each link, delegate the fetch to a no-access sub-agent and:\n"
+                "1. Create one `type: source` page capturing its key points, a concise "
+                "summary, and the author's conclusions; frontmatter `url`/`author`/"
+                "`date`, title ending with the domain in parentheses.\n"
+                "2. Create an atomic `type: concept` page for each distinct concept the "
+                "source introduces, densely [[wikilinked]] and citing the source under "
+                "`## Sources`.\n"
+                "The core page synthesises the links and links out to the source and "
+                "concept pages.\n"
+            )
         if resume:
             task += ("\nThe #research thread so far — continue from it and update the "
                      "existing page:\n\n" + self._transcript(stream_id, topic))
@@ -156,3 +171,18 @@ def _split(text: str) -> tuple[str, list[str]]:
             continue
         kept.append(line)
     return "\n".join(kept).strip(), followups
+
+
+URL_RE = re.compile(r'https?://[^\s<>()\[\]"\']+')
+
+
+def _urls(text: str) -> list[str]:
+    """Distinct http(s) URLs in order of appearance, trailing punctuation trimmed."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in URL_RE.findall(text or ""):
+        u = u.rstrip('.,);:]')
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
