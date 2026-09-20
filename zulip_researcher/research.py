@@ -19,6 +19,7 @@ from typing import Callable
 
 from . import bluesky_mirror, config, github, omp, wiki, zulip
 from .loop import Trigger
+from .prepare import PreparationClient
 from .slug import slug
 
 SYSTEM = """You are Agent Smith, author of a public discourse-graph wiki. Research the
@@ -52,7 +53,8 @@ MirrorTopic = Callable[[str, str], None]
 class Research:
     def __init__(self, cfg: config.Config, zc: "zulip.Zulip",
                  omp_run: OmpRun | None = None, wiki_ops=wiki,
-                 open_pr: OpenPr | None = None, mirror: MirrorTopic | None = None):
+                 open_pr: OpenPr | None = None, mirror: MirrorTopic | None = None,
+                 prepare: PreparationClient | None = None):
         self.cfg = cfg
         self.zc = zc
         self.omp_run = omp_run or omp.run
@@ -61,6 +63,7 @@ class Research:
         self.mirror = mirror or (
             lambda stream, topic: bluesky_mirror.BlueskyMirror(cfg, zc).mirror_topic(stream, topic)
         )
+        self.prepare = prepare or PreparationClient(cfg.prepare_url, cfg.prepare_token)
 
     def _opening(self, stream_id: int, topic: str) -> str:
         first = self.zc.first_message(stream_id, topic)
@@ -75,9 +78,12 @@ class Research:
     def research(self, t: Trigger, resume: bool = False) -> None:
         cfg = self.cfg
         stream_id = self.zc.get_stream_id(cfg.research_stream)
-        question = t.topic  # the #research topic title IS the question
         opening = self._opening(stream_id, t.topic)
-        s = slug(t.topic)
+        prepared = self.prepare.prepare(body=(opening or t.topic), title=t.topic,
+                                        policy=cfg.prepare_policy, fmt=cfg.prepare_format)
+        question = (prepared.title or t.topic).strip()
+        detail = (prepared.body or "").strip()
+        s = slug(question)
         branch = f"researcher/{s}"
 
         self.wiki.prepare(cfg.wiki_clone_dir, cfg.wiki_repo_url, cfg.wiki_base_branch,
@@ -85,8 +91,8 @@ class Research:
                           resume=resume)
 
         task = (SYSTEM % {"slug": s}) + f"\n\nQUESTION:\n{question}\n"
-        if opening and opening != question:
-            task += f"\nThe thread's opening message:\n{opening}\n"
+        if detail and detail != question:
+            task += f"\nDetails:\n{detail}\n"
         if resume:
             task += ("\nThe #research thread so far — continue from it and update the "
                      "existing page:\n\n" + self._transcript(stream_id, t.topic))
