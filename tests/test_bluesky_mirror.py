@@ -1,4 +1,4 @@
-"""Behavioural tests for the Bluesky mirror (git/Zulip/intent faked, no network)."""
+"""Behavioural tests for the Bluesky mirror (git/Zulip faked, no network)."""
 
 import json
 import os
@@ -50,15 +50,16 @@ class FakeZulip:
         return self._user_ids[email]
 
 
-class FakeIntent:
-    """Stands in for the intent step's omp ask: records the prompt it receives and
-    returns a fixed coherent question, so the operator post body is deterministic."""
+class FakePrepare:
+    """Stands in for the preparation client: records the body it receives and
+    returns a deterministic prepared body, so operator posts are predictable."""
     def __init__(self):
         self.calls = []
 
-    def __call__(self, task):
-        self.calls.append(task)
-        return '{"title": "A title", "question": "A coherent question?"}'
+    def prepare(self, body, title=None, policy="faithful-en-v1", fmt="markdown"):
+        self.calls.append(body)
+        return types.SimpleNamespace(body=f"PREPARED: {body}")
+
 
 
 def _cfg(tmp_path):
@@ -68,6 +69,7 @@ def _cfg(tmp_path):
         bluesky_clone_dir=str(tmp_path / "bluesky"),
         bluesky_posts_subdir="posts",
         bluesky_branch="main",
+        wiki_site_url="https://wiki.example.com",
         git_user_name="A",
         git_user_email="a@example.com",
         push_token="tok",
@@ -78,6 +80,8 @@ def _cfg(tmp_path):
         zulip_api_username="research-bot@example.com",
         prepare_url="https://prepare.example.com",
         prepare_token="ptok",
+        prepare_policy="faithful-en-v1",
+        prepare_format="markdown",
         mirror_wait_timeout=0,
         mirror_poll_interval=0,
     )
@@ -88,9 +92,9 @@ def _mirror(tmp_path, messages):
     user_ids = {cfg.operator_email: OPERATOR_ID, cfg.zulip_api_username: AGENT_ID}
     zc = FakeZulip(messages, user_ids)
     git = FakeGit()
-    intent_ask = FakeIntent()
-    m = BlueskyMirror(cfg, zc, intent_ask=intent_ask, git=git)
-    return m, git, intent_ask, cfg
+    prepare = FakePrepare()
+    m = BlueskyMirror(cfg, zc, prepare=prepare, git=git)
+    return m, git, prepare, cfg
 
 
 def _seed_published(clone_dir, slug, uri="at://did:plc:seed/app.bsky.feed.post/1", url=None):
@@ -125,9 +129,9 @@ def test_root_operator_message_commits_to_operator_repo_prepared_no_reply_to(tmp
     post_path = os.path.join(operator_dir, "posts", "zulip-100.md")
     assert os.path.exists(post_path)
     content = open(post_path).read()
-    assert content == "---\n---\n\nA coherent question?\n"   # intent-composed question
+    assert content == "---\n---\n\nPREPARED: Do rebuilds dominate?\n"   # prepared operator text
+    assert prepare.calls == ["Do rebuilds dominate?"]        # the raw text went through prepare
     assert "reply_to" not in content
-    assert len(prepare.calls) == 1 and "Do rebuilds dominate?" in prepare.calls[0]
     assert not os.path.isdir(agent_dir)  # agent repo never touched
     pushes = [c for c in git.calls if c[0][0] == "push" and c[1] == operator_dir]
     assert len(pushes) == 1
@@ -149,7 +153,6 @@ def test_agent_reply_threads_under_published_operator_post(tmp_path):
     assert os.path.exists(post_path)
     content = open(post_path).read()
     assert content == f"---\nreply_to: {uri}\n---\n\nRarely, unless CI is I/O bound.\n"
-    assert prepare.calls == []  # agent text is verbatim; intent runs only for the operator
     # message 100's post file was not rewritten (already published, left alone)
     assert open(os.path.join(operator_dir, "posts", "zulip-100.md")).read() == "---\n---\n\nseed\n"
 
@@ -172,7 +175,7 @@ def test_already_mirrored_messages_are_skipped_and_chain_advances(tmp_path):
     # the third message threads under the SECOND published post, not the first
     post_path = os.path.join(operator_dir, "posts", "zulip-102.md")
     content = open(post_path).read()
-    assert content == f"---\nreply_to: {second_uri}\n---\n\nA coherent question?\n"
+    assert content == f"---\nreply_to: {second_uri}\n---\n\nPREPARED: Follow-up\n"
     # the two already-published posts were never rewritten
     assert not any(c[0][0] == "commit" for c in git.calls if "zulip-100" in str(c) or "zulip-101" in str(c))
 
@@ -193,7 +196,6 @@ def test_stops_when_predecessor_committed_but_not_yet_published(tmp_path):
     # the agent's reply is never attempted: its parent isn't published yet
     assert not os.path.isdir(agent_dir)
     assert not any(c[0][0] == "commit" for c in git.calls)
-    assert prepare.calls == []
 
 
 def test_other_users_are_ignored_and_never_break_the_chain(tmp_path):
@@ -270,3 +272,5 @@ def test_confirms_a_published_post_url_in_the_topic_once(tmp_path):
     assert len(confirmations) == 1
     assert "https://bsky.app/profile/op.example/post/1" in confirmations[0]
     assert NO_MIRROR in confirmations[0]   # the confirmation is not itself mirrored
+    assert "operator" in confirmations[0]   # tagged with the publishing identity
+    assert "seed" in confirmations[0]        # the exact published text is echoed back

@@ -23,13 +23,13 @@ from .loop import Trigger
 from .slug import slug
 
 SYSTEM = """You are Agent Smith, author of a public discourse-graph wiki. Research the
-QUESTION (usually a link to ingest) and publish the result as atomic, densely
+message below (usually a link to ingest) and publish the result as atomic, densely
 [[wikilinked]] Markdown pages in the `site/` directory of the repo at your working directory.
 
 Work in a SINGLE pass, by yourself — do NOT spawn sub-agents. Fetch and read the link(s)
 directly, then write the pages.
 
-Method: pick the approach the question needs — evidence synthesis for empirical
+Method: pick the approach the message needs — evidence synthesis for empirical
 questions, a landscape map for broad ones, a criteria verdict for comparisons, a
 definition for concepts, positions for open questions. Ground every substantive claim in
 a source: one `type: source` page per cited URL (frontmatter `url`, `author`, `date`;
@@ -63,12 +63,14 @@ class Research:
     def __init__(self, cfg: config.Config, zc: "zulip.Zulip",
                  omp_run: OmpRun | None = None, wiki_ops=wiki,
                  open_pr: OpenPr | None = None, mirror: MirrorTopic | None = None,
-                 omp_ask: OmpAsk | None = None):
+                 omp_ask: OmpAsk | None = None, merge_pr=None):
         self.cfg = cfg
         self.zc = zc
         self.omp_run = omp_run or omp.run_stream
         self.wiki = wiki_ops
         self.open_pr = open_pr or github.open_pr
+        self.merge_pr = merge_pr or (
+            lambda repo, number, token: github.merge_pr(repo, number, token=token))
         self.mirror = mirror or (
             lambda stream, topic: bluesky_mirror.BlueskyMirror(cfg, zc).mirror_topic(stream, topic)
         )
@@ -110,11 +112,12 @@ class Research:
 
         untitled = zulip.is_untitled(t.topic)
         if untitled:
-            # The intent step reads the dropped message (usually a link) and decides
-            # the task: a short thread title and one coherent research question.
-            title, question = intent.derive(message, ask=self.omp_ask)
+            # The title auto-writer only names the thread for orientation; the
+            # research works from the operator's actual message (the body), never
+            # a reformulation.
+            title = intent.derive(message, ask=self.omp_ask)
         else:
-            title, question = t.topic, t.topic
+            title = t.topic
         s = slug(title)
         branch = f"researcher/{s}"
 
@@ -129,10 +132,7 @@ class Research:
                               branch, cfg.wiki_push_token, cfg.git_user_name,
                               cfg.git_user_email, resume=resume)
 
-            task = (SYSTEM % {"slug": s}) + f"\n\nQUESTION:\n{question}\n"
-            detail = message if message and message != question else ""
-            if detail:
-                task += f"\nDetails:\n{detail}\n"
+            task = (SYSTEM % {"slug": s}) + f"\n\nRESEARCH THIS:\n{message}\n"
             links = _urls(message)
             if links:
                 task += (
@@ -206,15 +206,24 @@ class Research:
             print(f"[researcher] bluesky mirror failed for {topic}: {e}",
                   file=sys.stderr, flush=True)
 
-    def _open_pr(self, branch: str, question: str, page_url: str) -> str:
+    def _open_pr(self, branch: str, title: str, page_url: str) -> str:
+        repo = github.repo_slug(self.cfg.wiki_repo_url)
+        token = self.cfg.wiki_push_token
         try:
-            return self.open_pr(
-                github.repo_slug(self.cfg.wiki_repo_url), token=self.cfg.wiki_push_token,
-                head=branch, base=self.cfg.wiki_base_branch,
-                title=question[:72], body=f"Research for: {question}\n\nPage: {page_url}",
-            )
-        except github.GitHubError:
+            url = self.open_pr(
+                repo, token=token, head=branch, base=self.cfg.wiki_base_branch,
+                title=title[:72], body=f"Research for: {title}\n\nPage: {page_url}")
+        except github.GitHubError as e:
+            print(f"[researcher] open_pr failed: {e}", file=sys.stderr, flush=True)
             return ""  # e.g. the PR already exists (resume)
+        number = github.pr_number(url)
+        if number is not None:
+            try:
+                self.merge_pr(repo, number, token)  # publish: squash-merge to main
+            except github.GitHubError as e:
+                print(f"[researcher] PR #{number} opened but not merged: {e}",
+                      file=sys.stderr, flush=True)
+        return url
 
 
 def _split(text: str) -> tuple[str, list[str]]:
