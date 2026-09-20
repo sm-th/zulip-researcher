@@ -28,18 +28,60 @@
       # The image bundles omp (from llm-agents.nix) plus git and the package, so the
       # whole researcher runs in one microVM (ADR-0002).
       researcherImage =
-        let researcher = mkResearcher guestPkgs;
-        in guestPkgs.dockerTools.buildLayeredImage {
+        let
+          researcher = mkResearcher guestPkgs;
+          # omp is configured ONLY from env (no committed config files). This bootstrap
+          # writes ~/.omp/agent/{config,models}.yml at container start, then execs the
+          # researcher. RESEARCHER_OMP_MODEL is the single model knob (default "auto"):
+          # a bare id (e.g. "auto") is declared as a model on the OpenAI-compatible
+          # endpoint (OPENAI_BASE_URL + OPENAI_API_KEY) and passed verbatim, so the
+          # endpoint resolves it; a provider/model id (has "/") is used as-is;
+          # RESEARCHER_OMP_MODELS_YAML, if set, overrides the generated models.yml.
+          entrypoint = guestPkgs.writeShellScriptBin "researcher-entrypoint" ''
+            set -eu
+            agent="$HOME/.omp/agent"
+            mkdir -p "$agent"
+            model="''${RESEARCHER_OMP_MODEL:-auto}"
+            roles() { echo "modelRoles:"; for r in default smol tiny task; do printf '  %s: "%s"\n' "$r" "$1"; done; }
+            if [ -n "''${RESEARCHER_OMP_MODELS_YAML:-}" ]; then
+              printf '%s\n' "$RESEARCHER_OMP_MODELS_YAML" > "$agent/models.yml"
+              roles "$model" > "$agent/config.yml"
+            else
+              case "$model" in
+                */*)
+                  roles "$model" > "$agent/config.yml" ;;
+                *)
+                  if [ -n "''${OPENAI_BASE_URL:-}" ]; then
+                    { echo "providers:";
+                      echo "  openai-compat:";
+                      printf '    baseUrl: "%s"\n' "$OPENAI_BASE_URL";
+                      echo "    apiKey: OPENAI_API_KEY";
+                      echo "    api: openai-completions";
+                      echo "    models:";
+                      printf '      - id: "%s"\n' "$model";
+                      printf '        name: "%s"\n' "$model";
+                    } > "$agent/models.yml"
+                    roles "openai-compat/$model" > "$agent/config.yml"
+                  else
+                    roles "$model" > "$agent/config.yml"
+                  fi ;;
+              esac
+            fi
+            exec ${researcher}/bin/zulip-researcher "$@"
+          '';
+        in
+        guestPkgs.dockerTools.buildLayeredImage {
           name = "zulip-researcher";
           tag = "latest";
-          contents = [ researcher llm-agents.packages.${guestSystem}.omp guestPkgs.git guestPkgs.openssh guestPkgs.bash guestPkgs.coreutils guestPkgs.jq guestPkgs.cacert guestPkgs.dockerTools.fakeNss ];
+          contents = [ researcher llm-agents.packages.${guestSystem}.omp guestPkgs.git guestPkgs.openssh guestPkgs.bash guestPkgs.coreutils guestPkgs.jq guestPkgs.cacert guestPkgs.dockerTools.fakeNss entrypoint ];
           config = {
-            Entrypoint = [ "zulip-researcher" ];
+            Entrypoint = [ "researcher-entrypoint" ];
             Cmd = [ "once" ];
             Env = [
               "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
               "GIT_SSL_CAINFO=/etc/ssl/certs/ca-bundle.crt"
               "PYTHONUNBUFFERED=1"
+              "HOME=/root"
             ];
           };
         };
