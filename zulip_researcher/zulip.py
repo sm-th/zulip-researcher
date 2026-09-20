@@ -117,8 +117,10 @@ class Zulip:
     # --- event queue ---
 
     def register_event_queue(self, event_types: list[str] | None = None,
-                             narrow: list[list[str]] | None = None) -> dict:
-        return self._ok(self._client.register(event_types=event_types, narrow=narrow))
+                             narrow: list[list[str]] | None = None,
+                             all_public_streams: bool = False) -> dict:
+        return self._ok(self._client.register(event_types=event_types, narrow=narrow,
+                                                all_public_streams=all_public_streams))
 
     def get_events(self, queue_id: str, last_event_id: int) -> tuple[list[dict], int]:
         resp = self._client.get_events(
