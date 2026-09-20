@@ -85,11 +85,19 @@ class Zulip:
         return (f"{self.url}/#narrow/channel/{stream_id}-"
                 f"{urllib.parse.quote(topic_name, safe='')}/near/{message_id}")
 
+    def user_lookup_raw(self, email: str) -> dict:
+        """Raw `GET users/{email}` response — for diagnosing operator resolution."""
+        return self._client.call_endpoint(f"users/{urllib.parse.quote(email)}", method="GET")
+
     def user_id_for_email(self, email: str) -> int | None:
-        resp = self._client.call_endpoint(f"users/{urllib.parse.quote(email)}", method="GET")
+        resp = self.user_lookup_raw(email)
         if resp.get("result") != "success":
             return None
         return (resp.get("user") or {}).get("user_id")
+
+    def list_members(self) -> list[dict]:
+        """All org members — for diagnosing operator resolution."""
+        return self._ok(self._client.get_members()).get("members", [])
 
     # --- writes ---
 
