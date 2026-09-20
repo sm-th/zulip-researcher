@@ -41,21 +41,23 @@ class Trigger:
     is_topic_start: bool
 
 
-def classify(t: Trigger, research_stream: str, operator_id: int) -> str:
+def classify(t: Trigger, research_stream: str, operator_id: int,
+             agent_id: int | None = None) -> str:
     """Pure decision: what should the listener do with this message?
 
-    Only the operator triggers anything (single-user). A message the operator writes
-    in #research starts a Research (a new topic) or resumes one (a reply); an
-    @research mention anywhere else asks for Recommendations. Everything else is
-    ignored — including the agent's own posts and other users.
+    `#research` is the operator's curated queue: any message dropped there —
+    written, or moved in from another channel, whatever its original author —
+    starts a Research (a new topic) or resumes one (a reply). Only the bot's own
+    posts there are ignored. An @research mention elsewhere asks for
+    Recommendations, but only from the operator (so no one else can summon it).
     """
-    if t.author_id != operator_id:
+    if agent_id is not None and t.author_id == agent_id:
         return IGNORE
     if t.stream == research_stream:
         if zulip.is_untitled(t.topic):
             return RESEARCH  # a loose message is always its own fresh research
         return RESEARCH if t.is_topic_start else RESUME
-    if t.is_mention:
+    if t.is_mention and t.author_id == operator_id:
         return RECOMMEND
     return IGNORE
 
@@ -74,6 +76,7 @@ class Loop:
         self.modes = modes
         self._stream_id: int | None = None
         self._operator_id: int | None = None
+        self._agent_id: int | None = None
 
     @property
     def stream_id(self) -> int:
@@ -87,6 +90,12 @@ class Loop:
             self._operator_id = self.cfg.operator_id or self.zc.user_id_for_email(self.cfg.operator_email)
         return self._operator_id
 
+    @property
+    def agent_id(self) -> int | None:
+        if self._agent_id is None:
+            self._agent_id = self.zc.user_id_for_email(self.cfg.zulip_api_username)
+        return self._agent_id
+
     # --- dispatch ---
 
     def _require_modes(self):
@@ -97,7 +106,7 @@ class Loop:
 
     def dispatch(self, t: Trigger) -> str:
         """Run the action for one trigger, idempotently. Returns the action taken."""
-        action = classify(t, self.cfg.research_stream, self.operator_id)
+        action = classify(t, self.cfg.research_stream, self.operator_id, self.agent_id)
         if action == IGNORE:
             return IGNORE
         self._require_modes()
@@ -152,7 +161,7 @@ class Loop:
     # --- reconcile (stateless backlog scan of #research) ---
 
     def reconcile(self) -> int:
-        """Research any operator #research topic that has no DONE marker yet.
+        """Research any #research topic that has no DONE marker yet.
 
         This recovers work missed while the listener was down; idempotency is the
         DONE reaction on the topic's first message.
@@ -163,10 +172,10 @@ class Loop:
             if topic_is_resolved(name):
                 continue
             if zulip.is_untitled(name):
-                # Loose messages share this catch-all topic; each operator message is
+                # Loose messages share this catch-all topic; each message there is
                 # its own research, so dispatch them individually (not just the first).
                 for m in self.zc.get_messages(self.stream_id, name):
-                    if m.get("sender_id") != self.operator_id:
+                    if m.get("sender_id") == self.agent_id:  # skip the bot's own posts
                         continue
                     if DONE in self.zc.message_reactions(m["id"]):
                         continue
