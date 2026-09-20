@@ -95,10 +95,6 @@ class Zulip:
             return None
         return (resp.get("user") or {}).get("user_id")
 
-    def list_members(self) -> list[dict]:
-        """All org members — for diagnosing operator resolution."""
-        return self._ok(self._client.get_members()).get("members", [])
-
     # --- writes ---
 
     def send_message(self, stream_id: int, topic_name: str, content: str) -> int:

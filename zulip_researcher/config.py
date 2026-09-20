@@ -33,6 +33,7 @@ class Config:
     research_stream: str
     mention_name: str
     operator_email: str
+    operator_id: int | None
     general_topic: str
     # Preparation interface
     prepare_url: str
@@ -123,6 +124,8 @@ def load() -> Config:
         research_stream=_env("RESEARCHER_STREAM", doc, "research_stream", "research"),
         mention_name=_env("RESEARCHER_MENTION_NAME", doc, "mention_name", "research"),
         operator_email=_env("RESEARCHER_OPERATOR_EMAIL", doc, "operator_email", "andy@example.com"),
+        operator_id=(int(os.environ["RESEARCHER_OPERATOR_ID"])
+                     if (os.environ.get("RESEARCHER_OPERATOR_ID") or "").strip() else None),
         general_topic=_env("RESEARCHER_GENERAL_TOPIC", doc, "general_topic", "general"),
         prepare_url=(os.environ.get("PREPARE_URL") or "").rstrip("/"),
         prepare_token=os.environ.get("PREPARE_TOKEN", ""),

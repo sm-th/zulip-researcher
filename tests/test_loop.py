@@ -40,6 +40,17 @@ def test_safe_dispatch_swallows_handler_errors():
     assert lp._safe_dispatch(t) == IGNORE
 
 
+def test_operator_id_prefers_config_override():
+    # A configured numeric id is used verbatim; no network lookup happens.
+    class _NoLookup(_FakeZulip):
+        def user_id_for_email(self, email):
+            raise AssertionError("must not hit the network when operator_id is set")
+    cfg = types.SimpleNamespace(research_stream="research",
+                                operator_email="x@example.com", operator_id=8)
+    lp = Loop(cfg, zc=_NoLookup(), modes=_BoomModes())
+    assert lp.operator_id == 8
+
+
 class _StopLoop(Exception):
     pass
 
