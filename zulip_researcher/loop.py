@@ -21,9 +21,12 @@ RESEARCH = "research"
 RESUME = "resume"
 IGNORE = "ignore"
 
-# Bot-owned reaction markers on a message (the operator never sets these).
+# Bot-owned reaction markers on a message (the operator never sets these). DONE uses the
+# `check` emoji: the prior researcher marked finished topics with the green check, so
+# reusing it here makes `reconcile` automatically skip already-researched topics (they
+# already carry `check`) with no separate wiki-existence check needed.
 WORKING = "working_on_it"
-DONE = "checkered_flag"
+DONE = "check"
 
 
 @dataclass(frozen=True)
