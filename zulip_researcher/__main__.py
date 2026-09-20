@@ -51,11 +51,12 @@ def main() -> int:
     if cmd == "show":
         return _cmd_show(cfg)
 
-    from . import loop
+    from . import loop, modes
+    lp = loop.Loop(cfg, modes=modes.build(cfg))
     if cmd == "run":
-        loop.Loop(cfg).run()
+        lp.run()
     else:
-        loop.Loop(cfg).run_once()
+        lp.run_once()
     return 0
 
 
