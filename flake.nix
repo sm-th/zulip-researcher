@@ -55,7 +55,7 @@
             text = ''
               export PYTHONDEVMODE=1
               export PYTHONWARNINGS="''${PYTHONWARNINGS:-default}"
-              exec secretspec run -- zulip-researcher "''${@:-once}"
+              exec secretspec run --provider dotenv --reason "zulip-researcher" -- zulip-researcher "''${@:-once}"
             '';
           };
 
@@ -79,7 +79,7 @@
               fi
               # Resolve secrets once via SecretSpec, then re-enter with them in env.
               if [ -z "''${_RESEARCHER_SECRETSPEC:-}" ]; then
-                exec secretspec run -- env _RESEARCHER_SECRETSPEC=1 "$0" "$@"
+                exec secretspec run --provider dotenv --reason "zulip-researcher" -- env _RESEARCHER_SECRETSPEC=1 "$0" "$@"
               fi
 
               echo "building local image (linux)..." >&2
@@ -88,10 +88,10 @@
 
               # The explicit input surface: secrets + non-secret RESEARCHER_* config.
               secrets=(ZULIP_URL ZULIP_API_KEY ZULIP_API_USERNAME \
-                       PREPARE_URL PREPARE_TOKEN PUSH_TOKEN \
+                       PREPARE_URL PREPARE_TOKEN \
+                       PUSH_TOKEN WIKI_PUSH_TOKEN BLUESKY_OPERATOR_PUSH_TOKEN BLUESKY_AGENT_PUSH_TOKEN \
                        ANTHROPIC_API_KEY OPENAI_API_KEY OPENAI_BASE_URL \
-                       WEB_SEARCH_API_KEY \
-                       BLUESKY_ANDYSMITH_APP_PASSWORD BLUESKY_SMITHWIKI_APP_PASSWORD)
+                       BRAVE_API_KEY TAVILY_API_KEY)
               envargs=()
               for k in "''${secrets[@]}"; do
                 if [ -n "''${!k:-}" ]; then envargs+=( -e "$k=''${!k}" ); fi
