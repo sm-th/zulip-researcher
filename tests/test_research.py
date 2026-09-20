@@ -228,7 +228,9 @@ def test_research_ingests_attached_link():
     task = seen["task"]
     assert "https://example.com/paper" in task
     assert "to ingest" in task
-    assert "type: concept" in task    # concept cards requested (issue #48)
+    assert "type: concept" in task           # concept cards still allowed (optional)
+    assert "type: source" in task            # the core ingest page is a source card
+    assert "NOT a Map of Content" in task    # never a MoC for a link ingest
 
 
 def test_research_reports_a_failure_in_the_receipt():

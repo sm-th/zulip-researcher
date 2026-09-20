@@ -135,18 +135,19 @@ class Research:
             task = (SYSTEM % {"slug": s}) + f"\n\nRESEARCH THIS:\n{message}\n"
             links = _urls(message)
             if links:
+                bullets = "\n".join(f"- {u}" for u in links)
                 task += (
-                    "\nAttached link(s) to ingest — treat this as the primary task:\n"
-                    + "\n".join(f"- {u}" for u in links)
-                    + "\nFor each link, fetch and read it yourself, then:\n"
-                    "1. Create one `type: source` page capturing its key points, a concise "
-                    "summary, and the author's conclusions; frontmatter `url`/`author`/"
-                    "`date`, title ending with the domain in parentheses.\n"
-                    "2. Create an atomic `type: concept` page for each distinct concept the "
-                    "source introduces, densely [[wikilinked]] and citing the source under "
-                    "`## Sources`.\n"
-                    "The core page synthesises the links and links out to the source and "
-                    "concept pages.\n"
+                    "\nAttached link(s) to ingest — this is the whole task. An ingest is a "
+                    "source card, NOT a Map of Content: never set `type: moc` here.\n"
+                    f"{bullets}\n"
+                    "Fetch and read each link yourself, then:\n"
+                    f"1. The core page (slug `{s}`) IS the source card: `type: source`, with "
+                    "frontmatter `url`/`author`/`date` and a title ending with the domain in "
+                    "parentheses — capture its key points, a concise summary, and the author's "
+                    "conclusions.\n"
+                    "2. Only if the source introduces distinct, reusable ideas, add an atomic "
+                    "`type: concept` page for each, densely [[wikilinked]] and citing the "
+                    "source under `## Sources`; link them from the source card.\n"
                 )
             if resume:
                 task += ("\nThe #research thread so far — continue from it and update the "
