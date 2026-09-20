@@ -65,6 +65,7 @@ class Config:
     wiki_ready_interval: int
     mirror_wait_timeout: int
     mirror_poll_interval: int
+    omp_timeout: int
     dry_run: bool
 
     def validate_for_publish(self) -> None:
@@ -154,5 +155,6 @@ def load() -> Config:
         wiki_ready_interval=int(_env("RESEARCHER_WIKI_READY_INTERVAL", doc, "wiki_ready_interval", "10")),
         mirror_wait_timeout=int(_env("RESEARCHER_MIRROR_WAIT_TIMEOUT", doc, "mirror_wait_timeout", "300")),
         mirror_poll_interval=int(_env("RESEARCHER_MIRROR_POLL_INTERVAL", doc, "mirror_poll_interval", "20")),
+        omp_timeout=int(_env("RESEARCHER_OMP_TIMEOUT", doc, "omp_timeout", "1800")),
         dry_run=_flag("RESEARCHER_DRY_RUN"),
     )
