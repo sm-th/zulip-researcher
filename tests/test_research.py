@@ -45,7 +45,7 @@ class FakeZulip:
 def _cfg():
     return types.SimpleNamespace(
         wiki_clone_dir="/tmp/wiki", wiki_repo_url="https://github.com/o/n.git",
-        wiki_base_branch="main", push_token="tok", git_user_name="A",
+        wiki_base_branch="main", push_token="tok", wiki_push_token="tok", git_user_name="A",
         git_user_email="a@example.com", wiki_site_url="https://wiki.example.com",
         research_stream="research",
     )

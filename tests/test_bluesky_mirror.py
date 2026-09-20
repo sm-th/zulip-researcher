@@ -62,6 +62,8 @@ def _cfg(tmp_path):
         git_user_name="A",
         git_user_email="a@example.com",
         push_token="tok",
+        bluesky_operator_push_token="tok",
+        bluesky_agent_push_token="tok",
         operator_email="andy@example.com",
         zulip_api_username="research-bot@example.com",
         prepare_url="https://prepare.example.com",
