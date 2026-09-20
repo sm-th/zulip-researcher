@@ -64,6 +64,7 @@ class Research:
             lambda stream, topic: bluesky_mirror.BlueskyMirror(cfg, zc).mirror_topic(stream, topic)
         )
         self.omp_ask = omp_ask or (lambda task: omp.ask(task))
+        self._agent_id_cache: int | None = None
 
     def _opening(self, stream_id: int, topic: str) -> str:
         first = self.zc.first_message(stream_id, topic)
@@ -74,6 +75,23 @@ class Research:
             f"{m.get('sender_full_name', '?')}: {m.get('content', '')}".strip()
             for m in self.zc.get_messages(stream_id, topic)
         )
+
+    @property
+    def _agent_id(self) -> int | None:
+        if self._agent_id_cache is None:
+            self._agent_id_cache = self.zc.user_id_for_email(self.cfg.zulip_api_username)
+        return self._agent_id_cache
+
+    def _receipt(self, stream_id: int, topic: str, status: str) -> int:
+        """Reuse the bot's existing status message in the topic (idempotent across
+        retries and restarts), else post a fresh one — so a re-run never duplicates
+        the receipt."""
+        for m in self.zc.get_messages(stream_id, topic):
+            if (m.get("sender_id") == self._agent_id
+                    and bluesky_mirror.NO_MIRROR not in (m.get("content") or "")):
+                self.zc.edit_message(m["id"], status)
+                return m["id"]
+        return self.zc.send_message(stream_id, topic, status)
 
     def research(self, t: Trigger, resume: bool = False) -> None:
         cfg = self.cfg
@@ -95,7 +113,7 @@ class Research:
         if untitled and title != t.topic:
             self.zc.move_message(t.message_id, title)  # move just this one message
             topic = title
-        receipt = self.zc.send_message(stream_id, topic, "🔎 Researching…")
+        receipt = self._receipt(stream_id, topic, "🔎 Researching…")
 
         try:
             self.wiki.prepare(cfg.wiki_clone_dir, cfg.wiki_repo_url, cfg.wiki_base_branch,
