@@ -178,7 +178,10 @@ class Loop:
 
     def run(self) -> None:
         self._require_modes()
-        self.reconcile()
+        print("[researcher] starting; scanning #research backlog", file=sys.stderr, flush=True)
+        handled = self.reconcile()
+        print(f"[researcher] backlog scan done ({handled} dispatched); listening for events",
+              file=sys.stderr, flush=True)
         reg = self.zc.register_event_queue(event_types=["message"])
         queue_id, last = reg["queue_id"], reg["last_event_id"]
         while True:
@@ -187,7 +190,10 @@ class Loop:
                 for event in events:
                     t = self._trigger_from_event(event)
                     if t is not None:
-                        self._safe_dispatch(t)
+                        action = self._safe_dispatch(t)
+                        if action != IGNORE:
+                            print(f"[researcher] {t.stream}/{t.topic}: {action}",
+                                  file=sys.stderr, flush=True)
             except zulip.ZulipError:
                 time.sleep(self.cfg.poll_interval)
                 reg = self.zc.register_event_queue(event_types=["message"])
