@@ -92,6 +92,7 @@
                        PREPARE_URL PREPARE_TOKEN \
                        PUSH_TOKEN WIKI_PUSH_TOKEN BLUESKY_OPERATOR_PUSH_TOKEN BLUESKY_AGENT_PUSH_TOKEN \
                        ANTHROPIC_API_KEY OPENAI_API_KEY OPENAI_BASE_URL \
+                       OPENROUTER_API_KEY GEMINI_API_KEY GROQ_API_KEY XAI_API_KEY MISTRAL_API_KEY DEEPSEEK_API_KEY \
                        BRAVE_API_KEY TAVILY_API_KEY)
               envargs=()
               for k in "''${secrets[@]}"; do
