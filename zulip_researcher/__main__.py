@@ -36,9 +36,13 @@ def main() -> int:
         return 0
 
     cmd = argv[0]
-    if cmd not in ("run", "once", "show"):
+    if cmd not in ("run", "once", "show", "doctor"):
         print(f"unknown command: {cmd}", file=sys.stderr)
         return 2
+
+    if cmd == "doctor":
+        from . import doctor
+        return doctor.run()
 
     try:
         cfg = config.load()
