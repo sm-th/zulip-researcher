@@ -28,7 +28,7 @@ class _BoomModes:
 
 
 def _cfg():
-    return types.SimpleNamespace(research_stream="research")
+    return types.SimpleNamespace(research_stream="research", operator_email="op@example.com")
 
 
 def test_safe_dispatch_swallows_handler_errors():
