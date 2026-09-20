@@ -2,8 +2,9 @@
   description = "zulip-researcher — recommend research questions from Zulip, publish deep research to Smith Wiki and Bluesky";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs.llm-agents.url = "github:numtide/llm-agents.nix";
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, llm-agents }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAll = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
@@ -24,14 +25,14 @@
 
       # A generic, offline OCI image: interpreter + git + CA certs + the package.
       # No operator setup or secrets are baked in; everything is runtime env.
-      # NOTE: the in-sandbox research toolchain (omp + search tools) is added in a
-      # later phase; this base image carries only what the listener needs.
+      # The image bundles omp (from llm-agents.nix) plus git and the package, so the
+      # whole researcher runs in one microVM (ADR-0002).
       researcherImage =
         let researcher = mkResearcher guestPkgs;
         in guestPkgs.dockerTools.buildLayeredImage {
           name = "zulip-researcher";
           tag = "latest";
-          contents = [ researcher guestPkgs.git guestPkgs.cacert guestPkgs.coreutils ];
+          contents = [ researcher llm-agents.packages.${guestSystem}.omp guestPkgs.git guestPkgs.openssh guestPkgs.bash guestPkgs.coreutils guestPkgs.jq guestPkgs.cacert ];
           config = {
             Entrypoint = [ "zulip-researcher" ];
             Cmd = [ "once" ];
