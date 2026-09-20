@@ -113,10 +113,17 @@ class Zulip:
         self._ok(self._client.call_endpoint(f"messages/{message_id}", method="DELETE"))
 
     def add_reaction(self, message_id: int, emoji: str) -> None:
-        self._ok(self._client.add_reaction({"message_id": message_id, "emoji_name": emoji}))
+        # Idempotent: the reaction is a durable marker; re-adding an existing one is fine.
+        resp = self._client.add_reaction({"message_id": message_id, "emoji_name": emoji})
+        if resp.get("result") != "success" and "already exists" not in (resp.get("msg") or ""):
+            raise ZulipError(resp.get("msg") or str(resp))
 
     def remove_reaction(self, message_id: int, emoji: str) -> None:
-        self._ok(self._client.remove_reaction({"message_id": message_id, "emoji_name": emoji}))
+        # Idempotent: removing an absent reaction is a no-op.
+        resp = self._client.remove_reaction({"message_id": message_id, "emoji_name": emoji})
+        msg = resp.get("msg") or ""
+        if resp.get("result") != "success" and "exist" not in msg:
+            raise ZulipError(msg or str(resp))
 
     # --- event queue ---
 
