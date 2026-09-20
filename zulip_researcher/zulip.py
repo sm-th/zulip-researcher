@@ -109,6 +109,13 @@ class Zulip:
     def edit_message(self, message_id: int, content: str) -> None:
         self._ok(self._client.update_message({"message_id": message_id, "content": content}))
 
+    def move_message(self, message_id: int, topic: str) -> None:
+        self._ok(self._client.update_message({
+            "message_id": message_id,
+            "topic": topic,
+            "propagate_mode": "change_all",
+        }))
+
     def delete_message(self, message_id: int) -> None:
         self._ok(self._client.call_endpoint(f"messages/{message_id}", method="DELETE"))
 

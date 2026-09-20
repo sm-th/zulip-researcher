@@ -81,8 +81,14 @@ class Research:
         opening = self._opening(stream_id, t.topic)
         prepared = self.prepare.prepare(body=(opening or t.topic), title=t.topic,
                                         policy=cfg.prepare_policy, fmt=cfg.prepare_format)
-        question = (prepared.title or t.topic).strip()
+        question = (prepared.title or t.topic or opening).strip()
         detail = (prepared.body or "").strip()
+
+        topic = t.topic
+        if not topic.strip():
+            # A loose, untitled message: move it into an auto-titled thread first.
+            self.zc.move_message(t.message_id, question)
+            topic = question
         s = slug(question)
         branch = f"researcher/{s}"
 
@@ -95,7 +101,7 @@ class Research:
             task += f"\nDetails:\n{detail}\n"
         if resume:
             task += ("\nThe #research thread so far — continue from it and update the "
-                     "existing page:\n\n" + self._transcript(stream_id, t.topic))
+                     "existing page:\n\n" + self._transcript(stream_id, topic))
 
         out = self.omp_run(task, tools=True, approval="yolo", session=False,
                            json_mode=True, cwd=cfg.wiki_clone_dir)
@@ -109,14 +115,14 @@ class Research:
 
         answer, followups = _split(omp.assistant_text(out))
         reply = f"{answer}\n\n📄 {page_url}" + (f"\nPR: {pr_url}" if pr_url else "")
-        self.zc.send_message(stream_id, t.topic, reply)
+        self.zc.send_message(stream_id, topic, reply)
         if followups:
             self.zc.send_message(
-                stream_id, t.topic,
+                stream_id, topic,
                 "**Follow-up questions** — copy any worth pursuing into a new "
                 "`#research` topic:\n\n" + "\n".join(f"- {q}" for q in followups),
             )
-        self._mirror_topic(t.topic)
+        self._mirror_topic(topic)
 
     def _mirror_topic(self, topic: str) -> None:
         try:
