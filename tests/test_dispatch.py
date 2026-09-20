@@ -31,11 +31,19 @@ def test_operator_reply_in_research_resumes():
     assert classify(t, RESEARCH_STREAM, OPERATOR) == RESUME
 
 
-def test_non_operator_is_ignored_everywhere():
+def test_non_operator_mention_outside_research_is_ignored():
+    # Only the operator can summon Recommendations from outside #research.
     assert classify(_t(stream="design", author_id=OTHER, is_mention=True),
                     RESEARCH_STREAM, OPERATOR) == IGNORE
+
+
+def test_any_non_agent_post_in_research_researches():
+    # #research is the operator's queue: a post moved in from another channel (a
+    # different author) still becomes research; only the bot's own posts are skipped.
     assert classify(_t(stream=RESEARCH_STREAM, author_id=OTHER, is_topic_start=True),
-                    RESEARCH_STREAM, OPERATOR) == IGNORE
+                    RESEARCH_STREAM, OPERATOR, agent_id=123) == RESEARCH
+    assert classify(_t(stream=RESEARCH_STREAM, author_id=123, is_topic_start=True),
+                    RESEARCH_STREAM, OPERATOR, agent_id=123) == IGNORE
 
 
 def test_plain_message_without_mention_is_ignored():

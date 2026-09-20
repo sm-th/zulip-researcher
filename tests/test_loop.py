@@ -18,6 +18,9 @@ class _FakeZulip:
     def remove_reaction(self, *a):
         pass
 
+    def user_id_for_email(self, email):
+        return 99  # the bot/agent id
+
 
 class _BoomModes:
     def recommend(self, t):
@@ -28,7 +31,8 @@ class _BoomModes:
 
 
 def _cfg():
-    return types.SimpleNamespace(research_stream="research", operator_email="op@example.com")
+    return types.SimpleNamespace(research_stream="research", operator_email="op@example.com",
+                                 zulip_api_username="bot@example.com")
 
 
 def test_safe_dispatch_swallows_handler_errors():
@@ -99,3 +103,22 @@ def test_classify_treats_a_loose_message_as_a_fresh_research():
     assert classify(loose, "research", 7) == RESEARCH   # loose -> always fresh, never resume
     reply = Trigger(topic="A real topic", is_topic_start=False, **base)
     assert classify(reply, "research", 7) == RESUME
+
+
+def test_classify_researches_any_non_agent_message_in_research():
+    from zulip_researcher.loop import classify, RESEARCH, IGNORE
+    base = dict(stream="research", topic="general chat", message_id=1,
+                is_mention=False, is_topic_start=False)
+    # a post moved in from another channel keeps its original (non-operator) author
+    moved = Trigger(author_id=6, **base)
+    assert classify(moved, "research", operator_id=8, agent_id=99) == RESEARCH
+    # the bot's own posts in #research are never acted on
+    own = Trigger(author_id=99, **base)
+    assert classify(own, "research", operator_id=8, agent_id=99) == IGNORE
+
+
+def test_classify_recommends_only_operator_mentions():
+    from zulip_researcher.loop import classify, RECOMMEND, IGNORE
+    base = dict(stream="general", topic="t", message_id=1, is_mention=True, is_topic_start=True)
+    assert classify(Trigger(author_id=8, **base), "research", 8, 99) == RECOMMEND
+    assert classify(Trigger(author_id=6, **base), "research", 8, 99) == IGNORE
