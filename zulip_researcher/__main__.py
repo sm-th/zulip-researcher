@@ -1,8 +1,9 @@
 """CLI.
 
-  python -m zulip_researcher run     poll forever
-  python -m zulip_researcher once    one reconcile pass, then exit
-  python -m zulip_researcher show    read-only: list #research topics + reactions
+  python -m zulip_researcher run             poll forever
+  python -m zulip_researcher once            one reconcile pass, then exit
+  python -m zulip_researcher show            read-only: list #research topics + reactions
+  python -m zulip_researcher mirror <topic>  one Bluesky-mirror pass for a #research topic
 
 Set RESEARCHER_DRY_RUN=1 to run without mutating Zulip, git, or Bluesky.
 """
@@ -28,6 +29,13 @@ def _cmd_show(cfg: config.Config) -> int:
     return 0
 
 
+def _cmd_mirror(cfg: config.Config, topic: str) -> int:
+    from . import bluesky_mirror, zulip
+    zc = zulip.Zulip(cfg.zulip_url, cfg.zulip_api_key, cfg.zulip_api_username)
+    bluesky_mirror.BlueskyMirror(cfg, zc).mirror_topic(cfg.research_stream, topic)
+    return 0
+
+
 def main() -> int:
     argv = sys.argv[1:]
     # Help must never touch configuration or secrets.
@@ -36,13 +44,17 @@ def main() -> int:
         return 0
 
     cmd = argv[0]
-    if cmd not in ("run", "once", "show", "doctor"):
+    if cmd not in ("run", "once", "show", "doctor", "mirror"):
         print(f"unknown command: {cmd}", file=sys.stderr)
         return 2
 
     if cmd == "doctor":
         from . import doctor
         return doctor.run()
+
+    if cmd == "mirror" and len(argv) < 2:
+        print("usage: mirror <topic>", file=sys.stderr)
+        return 2
 
     try:
         cfg = config.load()
@@ -52,6 +64,8 @@ def main() -> int:
 
     if cmd == "show":
         return _cmd_show(cfg)
+    if cmd == "mirror":
+        return _cmd_mirror(cfg, argv[1])
 
     from . import loop, modes
     lp = loop.Loop(cfg, modes=modes.build(cfg))
