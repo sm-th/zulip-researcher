@@ -32,40 +32,44 @@
           researcher = mkResearcher guestPkgs;
           # omp is configured ONLY from env (no committed config files). This bootstrap
           # writes ~/.omp/agent/{config,models}.yml at container start, then execs the
-          # researcher. RESEARCHER_OMP_MODEL is the single model knob (default "auto"):
-          # a bare id (e.g. "auto") is declared as a model on the OpenAI-compatible
-          # endpoint (OPENAI_BASE_URL + OPENAI_API_KEY) and passed verbatim, so the
-          # endpoint resolves it; a provider/model id (has "/") is used as-is;
+          # researcher. Models are per-role in three tiers, each a model id served by the
+          # OpenAI-compatible gateway (OPENAI_BASE_URL + OPENAI_API_KEY), declared on the
+          # `openai-compat` provider:
+          #   RESEARCHER_OMP_MODEL          — smart main model: default/slow/plan/advisor
+          #   RESEARCHER_OMP_SUBAGENT_MODEL — cheap model for subagents + background:
+          #                                   task/smol/tiny/commit (defaults to the main)
+          #   RESEARCHER_OMP_VISION_MODEL   — vision role (defaults to the subagent model)
           # RESEARCHER_OMP_MODELS_YAML, if set, overrides the generated models.yml.
           entrypoint = guestPkgs.writeShellScriptBin "researcher-entrypoint" ''
             set -eu
             agent="$HOME/.omp/agent"
             mkdir -p "$agent"
-            model="''${RESEARCHER_OMP_MODEL:-auto}"
-            roles() { echo "modelRoles:"; for r in default smol tiny task; do printf '  %s: "%s"\n' "$r" "$1"; done; }
+            main="''${RESEARCHER_OMP_MODEL:-auto}"
+            sub="''${RESEARCHER_OMP_SUBAGENT_MODEL:-$main}"
+            vision="''${RESEARCHER_OMP_VISION_MODEL:-$sub}"
+            emit_roles() {  # $1 main-ref, $2 subagent-ref, $3 vision-ref
+              echo "modelRoles:"
+              for r in default slow plan advisor; do printf '  %s: "%s"\n' "$r" "$1"; done
+              for r in task smol tiny commit; do printf '  %s: "%s"\n' "$r" "$2"; done
+              printf '  vision: "%s"\n' "$3"
+            }
             if [ -n "''${RESEARCHER_OMP_MODELS_YAML:-}" ]; then
               printf '%s\n' "$RESEARCHER_OMP_MODELS_YAML" > "$agent/models.yml"
-              roles "$model" > "$agent/config.yml"
+              emit_roles "$main" "$sub" "$vision" > "$agent/config.yml"
+            elif [ -n "''${OPENAI_BASE_URL:-}" ]; then
+              { echo "providers:";
+                echo "  openai-compat:";
+                printf '    baseUrl: "%s"\n' "$OPENAI_BASE_URL";
+                echo "    apiKey: OPENAI_API_KEY";
+                echo "    api: openai-completions";
+                echo "    models:";
+                printf '%s\n' "$main" "$sub" "$vision" | sort -u | while IFS= read -r m; do
+                  printf '      - id: "%s"\n        name: "%s"\n' "$m" "$m";
+                done
+              } > "$agent/models.yml"
+              emit_roles "openai-compat/$main" "openai-compat/$sub" "openai-compat/$vision" > "$agent/config.yml"
             else
-              case "$model" in
-                */*)
-                  roles "$model" > "$agent/config.yml" ;;
-                *)
-                  if [ -n "''${OPENAI_BASE_URL:-}" ]; then
-                    { echo "providers:";
-                      echo "  openai-compat:";
-                      printf '    baseUrl: "%s"\n' "$OPENAI_BASE_URL";
-                      echo "    apiKey: OPENAI_API_KEY";
-                      echo "    api: openai-completions";
-                      echo "    models:";
-                      printf '      - id: "%s"\n' "$model";
-                      printf '        name: "%s"\n' "$model";
-                    } > "$agent/models.yml"
-                    roles "openai-compat/$model" > "$agent/config.yml"
-                  else
-                    roles "$model" > "$agent/config.yml"
-                  fi ;;
-              esac
+              emit_roles "$main" "$sub" "$vision" > "$agent/config.yml"
             fi
             exec ${researcher}/bin/zulip-researcher "$@"
           '';
