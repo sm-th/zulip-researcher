@@ -1,8 +1,11 @@
 """CLI.
 
-  python -m zulip_researcher run     poll forever
-  python -m zulip_researcher once    one reconcile pass, then exit
-  python -m zulip_researcher show    read-only: list #research topics + reactions
+  run                          poll forever
+  once                         one reconcile pass, then exit
+  show                         list #research topics + reactions
+  doctor                       preflight: creds present + systems reachable (read-only)
+  recommend <stream> <topic>   run Recommend once on a thread
+  research <topic>             run Research once on a #research topic
 
 Set RESEARCHER_DRY_RUN=1 to run without mutating Zulip, git, or Bluesky.
 """
@@ -28,21 +31,31 @@ def _cmd_show(cfg: config.Config) -> int:
     return 0
 
 
+def _trigger(stream: str, topic: str, *, is_mention: bool, is_topic_start: bool):
+    from .loop import Trigger
+    return Trigger(stream=stream, topic=topic, author_id=0, message_id=0,
+                   is_mention=is_mention, is_topic_start=is_topic_start)
+
+
 def main() -> int:
     argv = sys.argv[1:]
-    # Help must never touch configuration or secrets.
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 0
 
     cmd = argv[0]
-    if cmd not in ("run", "once", "show"):
+    if cmd not in ("run", "once", "show", "doctor", "recommend", "research"):
         print(f"unknown command: {cmd}", file=sys.stderr)
         return 2
 
+    # doctor is read-only and loads config itself (it must report missing config too).
+    if cmd == "doctor":
+        from . import doctor
+        return doctor.run()
+
     try:
         cfg = config.load()
-        if cmd in ("run", "once"):
+        if cmd in ("run", "once", "recommend", "research"):
             cfg.validate_for_publish()
     except config.ConfigError as e:
         print(str(e), file=sys.stderr)
@@ -51,8 +64,26 @@ def main() -> int:
     if cmd == "show":
         return _cmd_show(cfg)
 
-    from . import loop, modes
-    lp = loop.Loop(cfg, modes=modes.build(cfg))
+    from . import modes
+    m = modes.build(cfg)
+
+    if cmd == "recommend":
+        if len(argv) < 3:
+            print("usage: recommend <stream> <topic>", file=sys.stderr)
+            return 2
+        m.recommend(_trigger(argv[1], argv[2], is_mention=True, is_topic_start=False))
+        return 0
+
+    if cmd == "research":
+        if len(argv) < 2:
+            print("usage: research <topic>", file=sys.stderr)
+            return 2
+        m.research(_trigger(cfg.research_stream, argv[1], is_mention=False, is_topic_start=True),
+                   resume=False)
+        return 0
+
+    from . import loop
+    lp = loop.Loop(cfg, modes=m)
     if cmd == "run":
         lp.run()
     else:

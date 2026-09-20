@@ -1,8 +1,12 @@
 """Run the omp agent as a subprocess.
 
-omp reads its prompt from stdin, so the task is piped into omp inside the shell (this
-is how the previous system reliably reached the guest). Structured output uses omp's
+omp reads its prompt from stdin, so the task is piped into omp inside the shell (this is
+how the previous system reliably reached the guest). Structured output uses omp's
 `--mode=json` NDJSON stream; `assistant_text` extracts the assistant's reply.
+
+Each run is a fresh, ephemeral session: resume is handled at our level by re-reading
+durable state (the Zulip transcript + the existing wiki page), not by omp session
+continuity (ADR-0003), so there is no `--continue`/session coupling to get wrong.
 """
 
 from __future__ import annotations
