@@ -269,3 +269,23 @@ def test_research_reuses_an_existing_receipt_instead_of_duplicating():
 
     assert zc.sent == []                              # no duplicate receipt posted
     assert zc.edits[0] == (501, "🔎 Researching…")    # the existing receipt was reused
+
+
+def test_research_streams_tool_activity_and_excludes_subagents():
+    from zulip_researcher.research import RESEARCH_TOOLS
+    zc = FakeZulip({"content": "Do rebuilds dominate?"})
+    fw = FakeWiki()
+
+    def fake_omp(task, on_tool=None, **kw):
+        assert kw["tools"] == RESEARCH_TOOLS and "task" not in RESEARCH_TOOLS  # no sub-agents
+        if on_tool:
+            on_tool("read", "Reading example.com/x", {})
+        return ('{"type":"message_end","message":{"role":"assistant","content":'
+                '[{"type":"text","text":"Done."}]}}')
+
+    t = Trigger(stream="research", topic="Do rebuilds dominate?", author_id=7,
+                message_id=1, is_mention=False, is_topic_start=True)
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
+             open_pr=lambda *a, **k: "").research(t)
+
+    assert any("step 1" in c and "Reading example.com/x" in c for _id, c in zc.edits)

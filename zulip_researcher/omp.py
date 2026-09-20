@@ -9,19 +9,23 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import subprocess
+import time
 
 
 class OmpError(RuntimeError):
     pass
 
 
-def _argv(model: str, json_mode: bool, tools: bool, session: bool, approval: str | None) -> list[str]:
+def _argv(model: str, json_mode: bool, tools, session: bool, approval: str | None) -> list[str]:
     flags = ["-p", "--no-pty", "--no-title"]
     if json_mode:
         flags.append("--mode=json")
-    if not tools:
+    if tools is False:
         flags.append("--no-tools")
+    elif isinstance(tools, str) and tools:
+        flags.append("--tools=" + tools)
     if not session:
         flags.append("--no-session")
     if approval:
@@ -49,6 +53,67 @@ def run(task: str, *, model: str | None = None, tools: bool = False, session: bo
     if proc.returncode != 0:
         raise OmpError(f"omp exit {proc.returncode}: {proc.stderr[:500]}")
     return proc.stdout
+
+def run_stream(task: str, *, model: str | None = None, tools=False, session: bool = False,
+               json_mode: bool = True, approval: str | None = None, cwd: str | None = None,
+               env: dict | None = None, timeout: int = 600, on_tool=None) -> str:
+    """Run omp streaming its --mode=json NDJSON. For each tool the agent starts, call
+    on_tool(tool_name, intent, args). Returns the full raw stdout. Reads with a select()
+    deadline so a stalled model (no output) still honours `timeout`."""
+    model = model if model is not None else os.environ.get("RESEARCHER_OMP_MODEL", "")
+    e = dict(os.environ)
+    if env:
+        e.update(env)
+    e["OMP_TASK"] = task
+    if model:
+        e["OMP_MODEL"] = model
+    proc = subprocess.Popen(_argv(model, json_mode, tools, session, approval),
+                            cwd=cwd, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    deadline = time.monotonic() + timeout
+    chunks: list[bytes] = []
+    buf = b""
+
+    def _feed(line: bytes) -> None:
+        if on_tool is None or b"tool_execution_start" not in line:
+            return
+        try:
+            ev = json.loads(line)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return
+        if ev.get("type") == "tool_execution_start":
+            try:
+                on_tool(ev.get("toolName") or "", ev.get("intent") or "", ev.get("args") or {})
+            except Exception:
+                pass
+
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                proc.kill()
+                raise OmpError(f"omp timed out after {timeout} seconds")
+            r, _, _ = select.select([proc.stdout], [], [], min(remaining, 5.0))
+            if proc.stdout in r:
+                data = os.read(proc.stdout.fileno(), 65536)
+                if not data:
+                    break
+                chunks.append(data)
+                buf += data
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    _feed(line)
+            elif proc.poll() is not None:
+                break
+    finally:
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+    proc.wait()
+    err = (proc.stderr.read().decode(errors="replace")[:500] if proc.stderr else "")
+    if proc.returncode not in (0, None):
+        raise OmpError(f"omp exit {proc.returncode}: {err}")
+    return b"".join(chunks).decode(errors="replace")
 
 
 def assistant_text(stdout: str) -> str:
