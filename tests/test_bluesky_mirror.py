@@ -65,6 +65,7 @@ def _cfg(tmp_path):
         bluesky_operator_push_token="tok",
         bluesky_agent_push_token="tok",
         operator_email="andy@example.com",
+        operator_id=None,
         zulip_api_username="research-bot@example.com",
         prepare_url="https://prepare.example.com",
         prepare_token="ptok",

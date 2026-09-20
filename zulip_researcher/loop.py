@@ -79,7 +79,7 @@ class Loop:
     @property
     def operator_id(self) -> int:
         if self._operator_id is None:
-            self._operator_id = self.zc.user_id_for_email(self.cfg.operator_email)
+            self._operator_id = self.cfg.operator_id or self.zc.user_id_for_email(self.cfg.operator_email)
         return self._operator_id
 
     # --- dispatch ---
@@ -185,14 +185,10 @@ class Loop:
               f"stream={self.cfg.research_stream!r} stream_id={self.stream_id}",
               file=sys.stderr, flush=True)
         if op is None:
-            print(f"[researcher] operator NOT resolved — raw GET users/<email>: "
-                  f"{self.zc.user_lookup_raw(self.cfg.operator_email)}",
+            print("[researcher] operator NOT resolved — set RESEARCHER_OPERATOR_ID to your "
+                  f"numeric Zulip user id ({self.cfg.operator_email!r} is not visible via the "
+                  f"API); raw lookup: {self.zc.user_lookup_raw(self.cfg.operator_email)}",
                   file=sys.stderr, flush=True)
-            for m in [x for x in self.zc.list_members() if not x.get("is_bot")][:100]:
-                print(f"[researcher]   member id={m.get('user_id')} "
-                      f"name={m.get('full_name')!r} email={m.get('email')!r} "
-                      f"delivery_email={m.get('delivery_email')!r}",
-                      file=sys.stderr, flush=True)
         handled = self.reconcile()
         print(f"[researcher] backlog scan done ({handled} dispatched); listening for events",
               file=sys.stderr, flush=True)

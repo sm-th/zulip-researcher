@@ -67,7 +67,7 @@ class BlueskyMirror:
     @property
     def operator_id(self) -> int:
         if self._operator_id is None:
-            self._operator_id = self.zc.user_id_for_email(self.cfg.operator_email)
+            self._operator_id = self.cfg.operator_id or self.zc.user_id_for_email(self.cfg.operator_email)
         return self._operator_id
 
     @property
