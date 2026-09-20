@@ -86,13 +86,13 @@ def test_research_publishes_pushes_and_replies():
     assert ("push", f"researcher/{s}") in fw.calls
     assert prs == [("o/n", f"researcher/{s}", "main")]
 
-    assert len(zc.sent) == 2
+    assert len(zc.sent) == 1
     _topic, body = zc.sent[0]
+    assert body.startswith("````spoiler")                # collapsed reply
     assert "Rebuilds rarely dominate." in body
     assert f"https://wiki.example.com/{s}/" in body
     assert "FOLLOWUPS" not in body                       # stripped from the answer
-    _t2, fbody = zc.sent[1]
-    assert "When does churn matter?" in fbody and "Cost of rebuilds?" in fbody
+    assert "When does churn matter?" in body and "Cost of rebuilds?" in body
 
 
 def test_split_extracts_followups():
