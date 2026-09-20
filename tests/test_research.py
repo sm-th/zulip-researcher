@@ -93,7 +93,7 @@ def test_research_publishes_pushes_and_replies():
     assert len(zc.sent) == 1                              # the live status receipt
     assert zc.sent[0][1] == "🔎 Researching…"
     _mid, body = zc.edits[-1]                             # edited in place to the answer
-    assert body.startswith("````spoiler")                # collapsed reply
+    assert "````spoiler" not in body                     # research is a full message
     assert "Rebuilds rarely dominate." in body
     assert f"https://wiki.example.com/{s}/" in body
     assert "FOLLOWUPS" not in body                       # stripped from the answer

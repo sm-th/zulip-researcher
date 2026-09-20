@@ -50,8 +50,9 @@ class Recommend:
             self.zc.edit_message(receipt, "No research questions surfaced from this thread.")
             return
         body = (
-            "**Candidate research questions** — copy the ones worth pursuing into "
-            "`#research`:\n\n" + "\n".join(f"- {q}" for q in questions)
+            "````spoiler 💡 Candidate research questions\n"
+            "Copy any worth pursuing into `#research`:\n\n"
+            + "\n".join(f"- {q}" for q in questions) + "\n````"
         )
         self.zc.edit_message(receipt, body)
 

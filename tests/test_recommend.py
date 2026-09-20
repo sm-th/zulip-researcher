@@ -55,6 +55,7 @@ def test_recommend_posts_candidate_questions_into_thread():
     assert len(zc.edits) == 1
     edited_id, body = zc.edits[0]
     assert edited_id == receipt_id
+    assert body.startswith("````spoiler")           # the advisor result is collapsed
     assert "When do image rebuilds dominate?" in body
     assert "How often do envs churn?" in body      # numbering stripped
     assert "#research" in body
