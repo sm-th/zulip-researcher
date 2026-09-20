@@ -90,14 +90,18 @@ def test_research_publishes_pushes_and_replies():
     assert ("push", f"researcher/{s}") in fw.calls
     assert prs == [("o/n", f"researcher/{s}", "main")]
 
-    assert len(zc.sent) == 1                              # the live status receipt
+    assert len(zc.sent) == 2                              # receipt + separate follow-ups
     assert zc.sent[0][1] == "🔎 Researching…"
     _mid, body = zc.edits[-1]                             # edited in place to the answer
     assert "````spoiler" not in body                     # research is a full message
     assert "Rebuilds rarely dominate." in body
     assert f"https://wiki.example.com/{s}/" in body
     assert "FOLLOWUPS" not in body                       # stripped from the answer
-    assert "When does churn matter?" in body and "Cost of rebuilds?" in body
+    assert "When does churn matter?" not in body         # follow-ups are a separate message
+    from zulip_researcher.bluesky_mirror import NO_MIRROR
+    follow = zc.sent[1][1]
+    assert "When does churn matter?" in follow and "Cost of rebuilds?" in follow
+    assert NO_MIRROR in follow                            # excluded from the Bluesky mirror
 
 
 def test_split_extracts_followups():

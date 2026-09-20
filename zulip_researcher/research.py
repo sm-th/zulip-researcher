@@ -135,11 +135,13 @@ class Research:
 
         answer, followups = _split(omp.assistant_text(out))
         body = f"{answer}\n\n📄 {page_url}" + (f"\nPR: {pr_url}" if pr_url else "")
-        if followups:
-            body += ("\n\n**Follow-ups** — copy any worth pursuing into a new "
-                     "`#research` topic:\n" + "\n".join(f"- {q}" for q in followups))
         # Research posts the full, visible answer (the primary result — not a spoiler).
         self.zc.edit_message(receipt, body)
+        if followups:
+            # A separate message, marked so the Bluesky mirror never publishes it.
+            self.zc.send_message(stream_id, topic, bluesky_mirror.NO_MIRROR + "\n"
+                "**Follow-ups** — copy any worth pursuing into a new `#research` topic:\n"
+                + "\n".join(f"- {q}" for q in followups))
         self._mirror_topic(topic)
 
     def _mirror_topic(self, topic: str) -> None:
