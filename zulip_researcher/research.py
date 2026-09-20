@@ -114,14 +114,12 @@ class Research:
         pr_url = self._open_pr(branch, question, page_url)
 
         answer, followups = _split(omp.assistant_text(out))
-        reply = f"{answer}\n\n📄 {page_url}" + (f"\nPR: {pr_url}" if pr_url else "")
-        self.zc.send_message(stream_id, topic, reply)
+        body = f"{answer}\n\n📄 {page_url}" + (f"\nPR: {pr_url}" if pr_url else "")
         if followups:
-            self.zc.send_message(
-                stream_id, topic,
-                "**Follow-up questions** — copy any worth pursuing into a new "
-                "`#research` topic:\n\n" + "\n".join(f"- {q}" for q in followups),
-            )
+            body += ("\n\n**Follow-ups** — copy any worth pursuing into a new "
+                     "`#research` topic:\n" + "\n".join(f"- {q}" for q in followups))
+        # Hidden by default (Zulip spoiler) so the answer doesn't clutter the thread.
+        self.zc.send_message(stream_id, topic, f"````spoiler 🔎 Research\n{body}\n````")
         self._mirror_topic(topic)
 
     def _mirror_topic(self, topic: str) -> None:
