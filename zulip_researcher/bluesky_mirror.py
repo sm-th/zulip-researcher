@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 from . import config, wiki, zulip
 from .prepare import PreparationClient
@@ -142,18 +143,25 @@ class BlueskyMirror:
         self.git._git(["push", "origin", self.cfg.bluesky_branch], cwd=clone_dir)
 
     def mirror_topic(self, stream: str, topic: str) -> None:
-        """Mirror `stream`/`topic` to Bluesky, committing at most one new post.
+        """Mirror `stream`/`topic` to Bluesky, driving the reply-thread to completion.
 
-        Walks messages oldest-first. Every already-published message advances
-        the reply chain (its AT-URI becomes the parent for the next mirrored
-        message). The first not-yet-mirrored operator/agent message is
-        committed — as the thread root, or as a reply to the chain's current
-        AT-URI — and the walk stops there: that post's own AT-URI is unknown
-        until its identity's CI publishes it, so nothing after it can thread
-        yet. A message whose post file exists but hasn't published yet also
-        stops the walk (retried next pass); other senders are skipped and
-        never break the chain.
+        Each pass commits at most one new post per identity chain, because a post's
+        own AT-URI is unknown until its CI publishes it (writing the sibling
+        state.json). So we re-pull and re-pass — waiting for that CI — until nothing
+        is left to mirror, or `mirror_wait_timeout` elapses (a later trigger or the
+        startup reconcile then resumes where CI left off).
         """
+        deadline = time.monotonic() + self.cfg.mirror_wait_timeout
+        while self._mirror_pass(stream, topic):
+            if time.monotonic() >= deadline:
+                return  # CI still catching up; resumed by the next pass/reconcile
+            time.sleep(self.cfg.mirror_poll_interval)
+            self._synced.clear()  # re-pull so the next pass sees CI's state.json
+
+    def _mirror_pass(self, stream: str, topic: str) -> bool:
+        """One oldest-first pass. Returns True when work remains — a post is
+        committed but not yet published, or a new post was just written — and
+        False once every mirrorable message is published."""
         stream_id = self.zc.get_stream_id(stream)
         prev_at_uri: str | None = None
         for m in self.zc.get_messages(stream_id, topic):
@@ -170,7 +178,7 @@ class BlueskyMirror:
             if os.path.exists(self._post_path(clone_dir, slug)):
                 uri = self._published_uri(clone_dir, slug)
                 if uri is None:
-                    return  # committed but not yet published; retry next pass
+                    return True  # committed but not yet published; retry next pass
                 prev_at_uri = uri
                 continue
 
@@ -178,7 +186,7 @@ class BlueskyMirror:
             if identity == OPERATOR:
                 body = self.prepare.prepare(body).body
             self._write_and_push(clone_dir, slug, message_id, body, prev_at_uri)
-            return  # this post's own AT-URI is unknown until its CI publishes it
+            return True  # its AT-URI is unknown until CI publishes it; retry
 
 
 __all__ = ["BlueskyMirror", "BlueskyMirrorError"]
