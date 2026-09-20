@@ -121,8 +121,8 @@ class Research:
         if followups:
             body += ("\n\n**Follow-ups** — copy any worth pursuing into a new "
                      "`#research` topic:\n" + "\n".join(f"- {q}" for q in followups))
-        # Live status receipt, edited in place; ends as the collapsed spoiler answer.
-        self.zc.edit_message(receipt, f"````spoiler 🔎 Research\n{body}\n````")
+        # Research posts the full, visible answer (the primary result — not a spoiler).
+        self.zc.edit_message(receipt, body)
         self._mirror_topic(topic)
 
     def _mirror_topic(self, topic: str) -> None:
