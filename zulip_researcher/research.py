@@ -91,6 +91,7 @@ class Research:
             topic = question
         s = slug(question)
         branch = f"researcher/{s}"
+        receipt = self.zc.send_message(stream_id, topic, "🔎 Researching…")
 
         self.wiki.prepare(cfg.wiki_clone_dir, cfg.wiki_repo_url, cfg.wiki_base_branch,
                           branch, cfg.wiki_push_token, cfg.git_user_name, cfg.git_user_email,
@@ -103,9 +104,11 @@ class Research:
             task += ("\nThe #research thread so far — continue from it and update the "
                      "existing page:\n\n" + self._transcript(stream_id, topic))
 
+        self.zc.edit_message(receipt, "🌐 Reading sources and drafting the page…")
         out = self.omp_run(task, tools=True, approval="yolo", session=False,
                            json_mode=True, cwd=cfg.wiki_clone_dir)
 
+        self.zc.edit_message(receipt, "📤 Publishing to the wiki…")
         if self.wiki.has_changes(cfg.wiki_clone_dir):
             self.wiki.commit_all(cfg.wiki_clone_dir, f"research: {question[:60]}")
         self.wiki.push(cfg.wiki_clone_dir, branch)
@@ -118,8 +121,8 @@ class Research:
         if followups:
             body += ("\n\n**Follow-ups** — copy any worth pursuing into a new "
                      "`#research` topic:\n" + "\n".join(f"- {q}" for q in followups))
-        # Hidden by default (Zulip spoiler) so the answer doesn't clutter the thread.
-        self.zc.send_message(stream_id, topic, f"````spoiler 🔎 Research\n{body}\n````")
+        # Live status receipt, edited in place; ends as the collapsed spoiler answer.
+        self.zc.edit_message(receipt, f"````spoiler 🔎 Research\n{body}\n````")
         self._mirror_topic(topic)
 
     def _mirror_topic(self, topic: str) -> None:
