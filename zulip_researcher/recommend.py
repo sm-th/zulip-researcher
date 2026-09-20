@@ -39,7 +39,9 @@ class Recommend:
         transcript = self._transcript(stream_id, t.topic)
         if not transcript.strip():
             return
-        answer = self.omp_ask(f"{SYSTEM}\n\n--- discussion ---\n\n{transcript}")
+        answer = self.omp_ask(
+            f"{SYSTEM}\n\nThread title: {t.topic}\n\n--- discussion ---\n\n{transcript}"
+        )
         questions = _questions(answer)
         if not questions:
             return

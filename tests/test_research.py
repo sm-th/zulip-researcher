@@ -62,6 +62,7 @@ def test_research_publishes_pushes_and_replies():
 
     def fake_omp(task, **kw):
         assert kw["tools"] and kw["approval"] == "yolo" and kw["cwd"] == "/tmp/wiki"
+        assert "QUESTION:\nDo rebuilds dominate?" in task   # topic title is the question
         return ('{"type":"message_end","message":{"role":"assistant","content":'
                 '[{"type":"text","text":"Rebuilds rarely dominate.\\n'
                 'FOLLOWUPS: When does churn matter? || Cost of rebuilds?"}]}}')
@@ -97,3 +98,21 @@ def test_repo_slug_parses_https_and_ssh():
 def test_slug_matches_eleventy_rules():
     assert slug("Do rebuilds dominate?") == "do-rebuilds-dominate"
     assert slug("  A/B & C  ") == "a-b-c"
+
+
+def test_research_prompt_uses_title_and_opening():
+    zc = FakeZulip({"content": "Because containers share the kernel."})
+    seen = {}
+
+    def fake_omp(task, **kw):
+        seen["task"] = task
+        return ('{"type":"message_end","message":{"role":"assistant",'
+                '"content":[{"type":"text","text":"ok"}]}}')
+
+    t = Trigger(stream="research", topic="Why microVMs over containers?",
+                author_id=7, message_id=1, is_mention=False, is_topic_start=True)
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=FakeWiki(),
+             open_pr=lambda *a, **k: "").research(t)
+
+    assert "QUESTION:\nWhy microVMs over containers?" in seen["task"]   # topic title
+    assert "Because containers share the kernel." in seen["task"]        # opening body
