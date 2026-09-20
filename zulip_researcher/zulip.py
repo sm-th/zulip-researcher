@@ -159,4 +159,14 @@ def topic_is_resolved(topic_name: str) -> bool:
     return stripped.startswith("✔") or stripped.startswith("✓")
 
 
-__all__ = ["Zulip", "ZulipError", "topic_is_resolved"]
+EMPTY_TOPIC_DISPLAY = "general chat"  # Zulip's realm_empty_topic_display_name
+
+
+def is_untitled(topic_name: str) -> bool:
+    """True when a message carries no purposeful topic: an empty topic, or Zulip's
+    empty-topic display name ("general chat"). Such a message gets auto-titled."""
+    stripped = (topic_name or "").strip()
+    return not stripped or stripped.casefold() == EMPTY_TOPIC_DISPLAY
+
+
+__all__ = ["Zulip", "ZulipError", "topic_is_resolved", "is_untitled"]
