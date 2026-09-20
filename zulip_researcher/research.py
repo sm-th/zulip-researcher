@@ -3,7 +3,8 @@
 The heavy lifting is omp's: it runs inside the sandbox with a full toolset, researches
 the question (delegating all web reading to isolated no-access sub-agents, ADR-0007),
 writes typed wiki pages, and commits. The host then pushes the branch and opens the PR
-(ADR-0006), replies a short Clean answer with the page URL, and posts follow-ups.
+(ADR-0006), replies a short Clean answer with the page URL, and posts follow-ups, then
+mirrors the topic to Bluesky (ADR-0005) — a mirror failure never breaks the reply.
 
 Resume is stateless (ADR-0003): on an operator comment we re-run a fresh omp given the
 thread transcript, based on the existing research branch (so the agent updates the page
@@ -13,9 +14,10 @@ it already wrote) — no omp session continuity.
 from __future__ import annotations
 
 import re
+import sys
 from typing import Callable
 
-from . import config, github, omp, wiki, zulip
+from . import bluesky_mirror, config, github, omp, wiki, zulip
 from .loop import Trigger
 from .slug import slug
 
@@ -44,17 +46,21 @@ questions exactly as: `FOLLOWUPS: question one || question two`.
 
 OmpRun = Callable[..., str]
 OpenPr = Callable[..., str]
+MirrorTopic = Callable[[str, str], None]
 
 
 class Research:
     def __init__(self, cfg: config.Config, zc: "zulip.Zulip",
                  omp_run: OmpRun | None = None, wiki_ops=wiki,
-                 open_pr: OpenPr | None = None):
+                 open_pr: OpenPr | None = None, mirror: MirrorTopic | None = None):
         self.cfg = cfg
         self.zc = zc
         self.omp_run = omp_run or omp.run
         self.wiki = wiki_ops
         self.open_pr = open_pr or github.open_pr
+        self.mirror = mirror or (
+            lambda stream, topic: bluesky_mirror.BlueskyMirror(cfg, zc).mirror_topic(stream, topic)
+        )
 
     def _question(self, stream_id: int, t: Trigger) -> str:
         first = self.zc.first_message(stream_id, t.topic)
@@ -101,6 +107,14 @@ class Research:
                 "**Follow-up questions** — copy any worth pursuing into a new "
                 "`#research` topic:\n\n" + "\n".join(f"- {q}" for q in followups),
             )
+        self._mirror_topic(t.topic)
+
+    def _mirror_topic(self, topic: str) -> None:
+        try:
+            self.mirror(self.cfg.research_stream, topic)
+        except Exception as e:  # a mirror failure must not break the research reply
+            print(f"[researcher] bluesky mirror failed for {topic}: {e}",
+                  file=sys.stderr, flush=True)
 
     def _open_pr(self, branch: str, question: str, page_url: str) -> str:
         try:
