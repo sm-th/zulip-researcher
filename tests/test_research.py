@@ -36,6 +36,7 @@ class FakeZulip:
     def __init__(self, first):
         self._first = first
         self.sent = []
+        self.moved = []
 
     def get_stream_id(self, name):
         return 5
@@ -46,6 +47,9 @@ class FakeZulip:
     def send_message(self, stream_id, topic, content):
         self.sent.append((topic, content))
         return 1
+
+    def move_message(self, message_id, topic):
+        self.moved.append((message_id, topic))
 
 
 def _cfg():
@@ -151,6 +155,36 @@ def test_research_normalizes_non_ascii_question_via_prepare():
     s = branch[len("researcher/"):]
     assert s
     assert re.fullmatch(r"[a-z0-9][a-z0-9-]*", s)
+
+
+def test_research_moves_untitled_message_into_auto_titled_thread():
+    zc = FakeZulip({"content": "Check out https://example.com/some-article"})
+    fw = FakeWiki()
+
+    class UntitledPrepare:
+        def prepare(self, body, title=None, policy=None, fmt=None):
+            return types.SimpleNamespace(title="Load the example link",
+                                          body="Prepared English detail.")
+
+    def fake_omp(task, **kw):
+        assert "QUESTION:\nLoad the example link" in task
+        return ('{"type":"message_end","message":{"role":"assistant","content":'
+                '[{"type":"text","text":"Loaded and summarized."}]}}')
+
+    t = Trigger(stream="research", topic="", author_id=7, message_id=42,
+                is_mention=False, is_topic_start=True)
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
+             open_pr=lambda *a, **k: "", prepare=UntitledPrepare()).research(t)
+
+    assert zc.moved == [(42, "Load the example link")]
+
+    s = slug("Load the example link")
+    assert ("push", f"researcher/{s}") in fw.calls
+
+    assert len(zc.sent) == 1
+    topic, body = zc.sent[0]
+    assert topic == "Load the example link"
+    assert "Loaded and summarized." in body
 
 
 def test_slug_falls_back_to_hash_for_non_ascii_input():
