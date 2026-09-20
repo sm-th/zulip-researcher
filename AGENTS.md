@@ -34,3 +34,6 @@ Privacy is structural, not a prompt (see `docs/adr/0004-privacy-by-structure.md`
 - Non-secret structure in `zulip_researcher.toml`, every key overridable by a
   `RESEARCHER_*` env var.
 - Run: `nix run .#debug -- once` (secretspec) or `nix run .#sandbox -- run` (microVM).
+- **One PR = one concern.** Keep PRs autonomous: never bundle unrelated changes, even
+  when they touch the same file. Split by concern, each on its own branch with its own
+  green CI, so every PR can be reviewed and merged (or reverted) alone.
