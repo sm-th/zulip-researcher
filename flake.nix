@@ -32,7 +32,7 @@
         in guestPkgs.dockerTools.buildLayeredImage {
           name = "zulip-researcher";
           tag = "latest";
-          contents = [ researcher llm-agents.packages.${guestSystem}.omp guestPkgs.git guestPkgs.openssh guestPkgs.bash guestPkgs.coreutils guestPkgs.jq guestPkgs.cacert ];
+          contents = [ researcher llm-agents.packages.${guestSystem}.omp guestPkgs.git guestPkgs.openssh guestPkgs.bash guestPkgs.coreutils guestPkgs.jq guestPkgs.cacert guestPkgs.dockerTools.fakeNss ];
           config = {
             Entrypoint = [ "zulip-researcher" ];
             Cmd = [ "once" ];
