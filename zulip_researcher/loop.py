@@ -180,8 +180,19 @@ class Loop:
     def run(self) -> None:
         self._require_modes()
         print("[researcher] starting; scanning #research backlog", file=sys.stderr, flush=True)
-        print(f"[researcher] operator_id={self.operator_id} stream={self.cfg.research_stream!r} "
-              f"stream_id={self.stream_id}", file=sys.stderr, flush=True)
+        op = self.operator_id
+        print(f"[researcher] operator_id={op} operator_email={self.cfg.operator_email!r} "
+              f"stream={self.cfg.research_stream!r} stream_id={self.stream_id}",
+              file=sys.stderr, flush=True)
+        if op is None:
+            print(f"[researcher] operator NOT resolved — raw GET users/<email>: "
+                  f"{self.zc.user_lookup_raw(self.cfg.operator_email)}",
+                  file=sys.stderr, flush=True)
+            for m in [x for x in self.zc.list_members() if not x.get("is_bot")][:100]:
+                print(f"[researcher]   member id={m.get('user_id')} "
+                      f"name={m.get('full_name')!r} email={m.get('email')!r} "
+                      f"delivery_email={m.get('delivery_email')!r}",
+                      file=sys.stderr, flush=True)
         handled = self.reconcile()
         print(f"[researcher] backlog scan done ({handled} dispatched); listening for events",
               file=sys.stderr, flush=True)
