@@ -182,7 +182,7 @@ class Loop:
         handled = self.reconcile()
         print(f"[researcher] backlog scan done ({handled} dispatched); listening for events",
               file=sys.stderr, flush=True)
-        reg = self.zc.register_event_queue(event_types=["message"])
+        reg = self.zc.register_event_queue(event_types=["message"], all_public_streams=True)
         queue_id, last = reg["queue_id"], reg["last_event_id"]
         while True:
             try:
@@ -194,7 +194,12 @@ class Loop:
                         if action != IGNORE:
                             print(f"[researcher] {t.stream}/{t.topic}: {action}",
                                   file=sys.stderr, flush=True)
+                        elif t.is_mention and t.author_id != self.operator_id:
+                            print(f"[researcher] ignored mention in {t.stream}/{t.topic}: "
+                                  f"author {t.author_id} != operator {self.operator_id} "
+                                  f"(check RESEARCHER_OPERATOR_EMAIL)",
+                                  file=sys.stderr, flush=True)
             except zulip.ZulipError:
                 time.sleep(self.cfg.poll_interval)
-                reg = self.zc.register_event_queue(event_types=["message"])
+                reg = self.zc.register_event_queue(event_types=["message"], all_public_streams=True)
                 queue_id, last = reg["queue_id"], reg["last_event_id"]
