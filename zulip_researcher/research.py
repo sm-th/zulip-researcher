@@ -81,12 +81,14 @@ class Research:
         opening = self._opening(stream_id, t.topic)
         prepared = self.prepare.prepare(body=(opening or t.topic), title=t.topic,
                                         policy=cfg.prepare_policy, fmt=cfg.prepare_format)
-        question = (prepared.title or t.topic or opening).strip()
+        untitled = zulip.is_untitled(t.topic)
+        question = (prepared.title or ("" if untitled else t.topic) or opening).strip()
         detail = (prepared.body or "").strip()
 
         topic = t.topic
-        if not topic.strip():
-            # A loose, untitled message: move it into an auto-titled thread first.
+        if untitled:
+            # A loose message (empty topic or "general chat"): move it into its own
+            # auto-titled thread first.
             self.zc.move_message(t.message_id, question)
             topic = question
         s = slug(question)

@@ -176,7 +176,7 @@ def test_research_moves_untitled_message_into_auto_titled_thread():
         return ('{"type":"message_end","message":{"role":"assistant","content":'
                 '[{"type":"text","text":"Loaded and summarized."}]}}')
 
-    t = Trigger(stream="research", topic="", author_id=7, message_id=42,
+    t = Trigger(stream="research", topic="general chat", author_id=7, message_id=42,
                 is_mention=False, is_topic_start=True)
     Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
              open_pr=lambda *a, **k: "", prepare=UntitledPrepare()).research(t)
@@ -190,6 +190,13 @@ def test_research_moves_untitled_message_into_auto_titled_thread():
     topic, _status = zc.sent[0]
     assert topic == "Load the example link"
     assert "Loaded and summarized." in zc.edits[-1][1]    # final edit carries the answer
+
+
+def test_is_untitled_matches_empty_and_general_chat():
+    from zulip_researcher.zulip import is_untitled
+    assert is_untitled("") and is_untitled("   ")
+    assert is_untitled("general chat") and is_untitled("General Chat")
+    assert not is_untitled("Real research topic")
 
 
 def test_slug_falls_back_to_hash_for_non_ascii_input():
