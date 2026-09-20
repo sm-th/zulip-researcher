@@ -37,6 +37,7 @@ class FakeZulip:
         self._first = first
         self.sent = []
         self.moved = []
+        self.edits = []
 
     def get_stream_id(self, name):
         return 5
@@ -47,6 +48,9 @@ class FakeZulip:
     def send_message(self, stream_id, topic, content):
         self.sent.append((topic, content))
         return 1
+
+    def edit_message(self, message_id, content):
+        self.edits.append((message_id, content))
 
     def move_message(self, message_id, topic):
         self.moved.append((message_id, topic))
@@ -86,8 +90,9 @@ def test_research_publishes_pushes_and_replies():
     assert ("push", f"researcher/{s}") in fw.calls
     assert prs == [("o/n", f"researcher/{s}", "main")]
 
-    assert len(zc.sent) == 1
-    _topic, body = zc.sent[0]
+    assert len(zc.sent) == 1                              # the live status receipt
+    assert zc.sent[0][1] == "🔎 Researching…"
+    _mid, body = zc.edits[-1]                             # edited in place to the answer
     assert body.startswith("````spoiler")                # collapsed reply
     assert "Rebuilds rarely dominate." in body
     assert f"https://wiki.example.com/{s}/" in body
@@ -181,10 +186,10 @@ def test_research_moves_untitled_message_into_auto_titled_thread():
     s = slug("Load the example link")
     assert ("push", f"researcher/{s}") in fw.calls
 
-    assert len(zc.sent) == 1
-    topic, body = zc.sent[0]
+    assert len(zc.sent) == 1                              # receipt posted to the new topic
+    topic, _status = zc.sent[0]
     assert topic == "Load the example link"
-    assert "Loaded and summarized." in body
+    assert "Loaded and summarized." in zc.edits[-1][1]    # final edit carries the answer
 
 
 def test_slug_falls_back_to_hash_for_non_ascii_input():
