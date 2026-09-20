@@ -27,11 +27,6 @@ class FakeWiki:
         self.calls.append(("push", branch))
 
 
-class FakePrepare:
-    def prepare(self, body, title=None, policy=None, fmt=None):
-        return types.SimpleNamespace(title=(title or body), body=body)
-
-
 class FakeZulip:
     def __init__(self, first):
         self._first = first
@@ -83,8 +78,8 @@ def test_research_publishes_pushes_and_replies():
 
     t = Trigger(stream="research", topic="Do rebuilds dominate?", author_id=7,
                 message_id=1, is_mention=False, is_topic_start=True)
-    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw, open_pr=fake_open_pr,
-             prepare=FakePrepare()).research(t)
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
+             open_pr=fake_open_pr).research(t)
 
     s = slug("Do rebuilds dominate?")
     assert ("push", f"researcher/{s}") in fw.calls
@@ -132,30 +127,24 @@ def test_research_prompt_uses_title_and_opening():
     t = Trigger(stream="research", topic="Why microVMs over containers?",
                 author_id=7, message_id=1, is_mention=False, is_topic_start=True)
     Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=FakeWiki(),
-             open_pr=lambda *a, **k: "", prepare=FakePrepare()).research(t)
+             open_pr=lambda *a, **k: "").research(t)
 
     assert "QUESTION:\nWhy microVMs over containers?" in seen["task"]   # topic title
     assert "Because containers share the kernel." in seen["task"]        # opening body
 
 
-def test_research_normalizes_non_ascii_question_via_prepare():
-    zc = FakeZulip({"content": "Δοκιμή τίτλος με ερώτημα;"})
+def test_research_branch_slug_is_ascii_for_a_non_ascii_title():
+    zc = FakeZulip({"content": "Δοκιμή σώματος."})
     fw = FakeWiki()
 
-    class NonAsciiPrepare:
-        def prepare(self, body, title=None, policy=None, fmt=None):
-            return types.SimpleNamespace(title="Agent repeats biases?",
-                                          body="Prepared English detail.")
-
     def fake_omp(task, **kw):
-        assert "QUESTION:\nAgent repeats biases?" in task
         return ('{"type":"message_end","message":{"role":"assistant","content":'
                 '[{"type":"text","text":"ok"}]}}')
 
     t = Trigger(stream="research", topic="Δοκιμή τίτλος με ερώτημα;", author_id=7,
                 message_id=1, is_mention=False, is_topic_start=True)
     Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
-             open_pr=lambda *a, **k: "", prepare=NonAsciiPrepare()).research(t)
+             open_pr=lambda *a, **k: "").research(t)
 
     pushed = [branch for op, branch in fw.calls if op == "push"]
     assert len(pushed) == 1
@@ -170,20 +159,19 @@ def test_research_moves_untitled_message_into_auto_titled_thread():
     zc = FakeZulip({"content": "Check out https://example.com/some-article"})
     fw = FakeWiki()
 
-    class UntitledPrepare:
-        def prepare(self, body, title=None, policy=None, fmt=None):
-            return types.SimpleNamespace(title="Load the example link",
-                                          body="Prepared English detail.")
+    def fake_intent(task):
+        return ('{"title": "Load the example link", '
+                '"question": "What does the example article argue?"}')
 
     def fake_omp(task, **kw):
-        assert "QUESTION:\nLoad the example link" in task
+        assert "QUESTION:\nWhat does the example article argue?" in task
         return ('{"type":"message_end","message":{"role":"assistant","content":'
                 '[{"type":"text","text":"Loaded and summarized."}]}}')
 
     t = Trigger(stream="research", topic="general chat", author_id=7, message_id=42,
                 is_mention=False, is_topic_start=True)
     Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
-             open_pr=lambda *a, **k: "", prepare=UntitledPrepare()).research(t)
+             open_pr=lambda *a, **k: "", omp_ask=fake_intent).research(t)
 
     assert zc.moved == [(42, "Load the example link")]
 
@@ -214,10 +202,8 @@ def test_research_ingests_attached_link():
     fw = FakeWiki()
     seen = {}
 
-    class LinkPrepare:
-        def prepare(self, body, title=None, policy=None, fmt=None):
-            return types.SimpleNamespace(title="Example Paper",
-                                          body="https://example.com/paper — worth a look")
+    def fake_intent(task):
+        return '{"title": "Ingest: Example Paper", "question": "What does the example paper argue?"}'
 
     def fake_omp(task, **kw):
         seen["task"] = task
@@ -227,7 +213,7 @@ def test_research_ingests_attached_link():
     t = Trigger(stream="research", topic="general chat", author_id=7, message_id=9,
                 is_mention=False, is_topic_start=True)
     Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
-             open_pr=lambda *a, **k: "", prepare=LinkPrepare()).research(t)
+             open_pr=lambda *a, **k: "", omp_ask=fake_intent).research(t)
 
     task = seen["task"]
     assert "https://example.com/paper" in task

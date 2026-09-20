@@ -110,11 +110,15 @@ class Zulip:
         self._ok(self._client.update_message({"message_id": message_id, "content": content}))
 
     def move_message(self, message_id: int, topic: str) -> None:
-        self._ok(self._client.update_message({
+        # Move just this one message (change_one); tolerate Zulip's "Nothing to
+        # change" when it is already in that topic (idempotent).
+        resp = self._client.update_message({
             "message_id": message_id,
             "topic": topic,
-            "propagate_mode": "change_all",
-        }))
+            "propagate_mode": "change_one",
+        })
+        if resp.get("result") != "success" and "Nothing to change" not in (resp.get("msg") or ""):
+            raise ZulipError(resp.get("msg") or str(resp))
 
     def delete_message(self, message_id: int) -> None:
         self._ok(self._client.call_endpoint(f"messages/{message_id}", method="DELETE"))
