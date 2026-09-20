@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 
 def slug(s: str) -> str:
+    original = s
     s = s.lower().strip()
     s = re.sub(r"[^a-z0-9]+", "-", s)
-    return s.strip("-")
+    out = s.strip("-")
+    if out:
+        return out
+    return "topic-" + hashlib.sha1(original.encode("utf-8")).hexdigest()[:10]

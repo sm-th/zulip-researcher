@@ -1,5 +1,6 @@
 """Behavioural tests for Research orchestration (omp/wiki/PR/zulip faked)."""
 
+import re
 import types
 
 from zulip_researcher.github import repo_slug
@@ -26,6 +27,11 @@ class FakeWiki:
         self.calls.append(("push", branch))
 
 
+class FakePrepare:
+    def prepare(self, body, title=None, policy=None, fmt=None):
+        return types.SimpleNamespace(title=(title or body), body=body)
+
+
 class FakeZulip:
     def __init__(self, first):
         self._first = first
@@ -47,7 +53,7 @@ def _cfg():
         wiki_clone_dir="/tmp/wiki", wiki_repo_url="https://github.com/o/n.git",
         wiki_base_branch="main", push_token="tok", wiki_push_token="tok", git_user_name="A",
         git_user_email="a@example.com", wiki_site_url="https://wiki.example.com",
-        research_stream="research",
+        research_stream="research", prepare_policy="faithful-en-v1", prepare_format="markdown",
     )
 
 
@@ -69,7 +75,8 @@ def test_research_publishes_pushes_and_replies():
 
     t = Trigger(stream="research", topic="Do rebuilds dominate?", author_id=7,
                 message_id=1, is_mention=False, is_topic_start=True)
-    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw, open_pr=fake_open_pr).research(t)
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw, open_pr=fake_open_pr,
+             prepare=FakePrepare()).research(t)
 
     s = slug("Do rebuilds dominate?")
     assert ("push", f"researcher/{s}") in fw.calls
@@ -112,7 +119,41 @@ def test_research_prompt_uses_title_and_opening():
     t = Trigger(stream="research", topic="Why microVMs over containers?",
                 author_id=7, message_id=1, is_mention=False, is_topic_start=True)
     Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=FakeWiki(),
-             open_pr=lambda *a, **k: "").research(t)
+             open_pr=lambda *a, **k: "", prepare=FakePrepare()).research(t)
 
     assert "QUESTION:\nWhy microVMs over containers?" in seen["task"]   # topic title
     assert "Because containers share the kernel." in seen["task"]        # opening body
+
+
+def test_research_normalizes_non_ascii_question_via_prepare():
+    zc = FakeZulip({"content": "Δοκιμή τίτλος με ερώτημα;"})
+    fw = FakeWiki()
+
+    class NonAsciiPrepare:
+        def prepare(self, body, title=None, policy=None, fmt=None):
+            return types.SimpleNamespace(title="Agent repeats biases?",
+                                          body="Prepared English detail.")
+
+    def fake_omp(task, **kw):
+        assert "QUESTION:\nAgent repeats biases?" in task
+        return ('{"type":"message_end","message":{"role":"assistant","content":'
+                '[{"type":"text","text":"ok"}]}}')
+
+    t = Trigger(stream="research", topic="Δοκιμή τίτλος με ερώτημα;", author_id=7,
+                message_id=1, is_mention=False, is_topic_start=True)
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
+             open_pr=lambda *a, **k: "", prepare=NonAsciiPrepare()).research(t)
+
+    pushed = [branch for op, branch in fw.calls if op == "push"]
+    assert len(pushed) == 1
+    branch = pushed[0]
+    assert branch.startswith("researcher/")
+    s = branch[len("researcher/"):]
+    assert s
+    assert re.fullmatch(r"[a-z0-9][a-z0-9-]*", s)
+
+
+def test_slug_falls_back_to_hash_for_non_ascii_input():
+    s = slug("Δοκιμή τίτλος με ερώτημα;")
+    assert s
+    assert re.fullmatch(r"[a-z0-9][a-z0-9-]*", s)
