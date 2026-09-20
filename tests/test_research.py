@@ -33,6 +33,7 @@ class FakeZulip:
         self.sent = []
         self.moved = []
         self.edits = []
+        self.messages = []
 
     def get_stream_id(self, name):
         return 5
@@ -50,6 +51,12 @@ class FakeZulip:
     def move_message(self, message_id, topic):
         self.moved.append((message_id, topic))
 
+    def get_messages(self, stream_id, topic):
+        return self.messages
+
+    def user_id_for_email(self, email):
+        return 42
+
 
 def _cfg():
     return types.SimpleNamespace(
@@ -57,7 +64,7 @@ def _cfg():
         wiki_base_branch="main", push_token="tok", wiki_push_token="tok", git_user_name="A",
         git_user_email="a@example.com", wiki_site_url="https://wiki.example.com",
         research_stream="research", prepare_policy="faithful-en-v1", prepare_format="markdown",
-        omp_timeout=600,
+        omp_timeout=600, zulip_api_username="bot@example.com",
     )
 
 
@@ -241,3 +248,24 @@ def test_research_reports_a_failure_in_the_receipt():
     assert raised                                # the failure still propagates
     assert "Research failed" in zc.edits[-1][1]  # ...but the receipt is not left hanging
     assert "omp timed out" in zc.edits[-1][1]
+
+
+def test_research_reuses_an_existing_receipt_instead_of_duplicating():
+    zc = FakeZulip({"content": "Do rebuilds dominate?"})
+    zc.messages = [
+        {"id": 500, "sender_id": 7, "content": "Do rebuilds dominate?"},
+        {"id": 501, "sender_id": 42, "content": "⚠️ Research failed — earlier"},
+    ]
+    fw = FakeWiki()
+
+    def fake_omp(task, **kw):
+        return ('{"type":"message_end","message":{"role":"assistant","content":'
+                '[{"type":"text","text":"Rarely."}]}}')
+
+    t = Trigger(stream="research", topic="Do rebuilds dominate?", author_id=7,
+                message_id=500, is_mention=False, is_topic_start=True)
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
+             open_pr=lambda *a, **k: "").research(t)
+
+    assert zc.sent == []                              # no duplicate receipt posted
+    assert zc.edits[0] == (501, "🔎 Researching…")    # the existing receipt was reused
