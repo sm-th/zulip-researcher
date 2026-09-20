@@ -160,8 +160,10 @@
               # Long-running `run` needs a PTY or msb buffers guest stdout until
               # exit; fall back to --no-tty when not attached to a terminal.
               tty=(--no-tty); [ -t 1 ] && tty=(-t)
-              exec "$msb" run "''${tty[@]}" "''${envargs[@]}" \
-                zulip-researcher:latest -- "''${@:-once}"
+              # Deep research is memory-heavy; a small microVM OOM-kills omp (exit 137).
+              exec "$msb" run "''${tty[@]}" \
+                -m "''${RESEARCHER_VM_MEMORY:-8G}" -c "''${RESEARCHER_VM_CPUS:-4}" \
+                "''${envargs[@]}" zulip-researcher:latest -- "''${@:-once}"
             '';
           };
         in
