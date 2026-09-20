@@ -26,8 +26,7 @@ import json
 import os
 import time
 
-from . import config, wiki, zulip
-from .prepare import PreparationClient
+from . import config, intent, omp, wiki, zulip
 
 OPERATOR = "operator"
 AGENT = "agent"
@@ -61,10 +60,10 @@ class BlueskyMirror:
     """Mirrors one `#research` topic's messages to Bluesky, oldest-first."""
 
     def __init__(self, cfg: config.Config, zc: "zulip.Zulip",
-                 prepare: "PreparationClient | None" = None, git=wiki):
+                 intent_ask=None, git=wiki):
         self.cfg = cfg
         self.zc = zc
-        self.prepare = prepare or PreparationClient(cfg.prepare_url, cfg.prepare_token)
+        self.intent_ask = intent_ask or (lambda task: omp.ask(task))
         self.git = git
         self._operator_id: int | None = None
         self._agent_id: int | None = None
@@ -193,7 +192,9 @@ class BlueskyMirror:
 
             body = m.get("content", "")
             if identity == OPERATOR:
-                body = self.prepare.prepare(body).body
+                # The operator's header post is a single coherent question (<=300),
+                # composed by the intent step — not a title + body dump.
+                _title, body = intent.derive(body, ask=self.intent_ask)
             self._write_and_push(clone_dir, slug, message_id, body, prev_at_uri)
             return True  # its AT-URI is unknown until CI publishes it; retry
         return False

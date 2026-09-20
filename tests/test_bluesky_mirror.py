@@ -1,4 +1,4 @@
-"""Behavioural tests for the Bluesky mirror (git/Zulip/prepare faked, no network)."""
+"""Behavioural tests for the Bluesky mirror (git/Zulip/intent faked, no network)."""
 
 import json
 import os
@@ -50,13 +50,15 @@ class FakeZulip:
         return self._user_ids[email]
 
 
-class FakePrepare:
+class FakeIntent:
+    """Stands in for the intent step's omp ask: records the prompt it receives and
+    returns a fixed coherent question, so the operator post body is deterministic."""
     def __init__(self):
         self.calls = []
 
-    def prepare(self, body, **kwargs):
-        self.calls.append(body)
-        return types.SimpleNamespace(body=f"PREPARED: {body}")
+    def __call__(self, task):
+        self.calls.append(task)
+        return '{"title": "A title", "question": "A coherent question?"}'
 
 
 def _cfg(tmp_path):
@@ -86,9 +88,9 @@ def _mirror(tmp_path, messages):
     user_ids = {cfg.operator_email: OPERATOR_ID, cfg.zulip_api_username: AGENT_ID}
     zc = FakeZulip(messages, user_ids)
     git = FakeGit()
-    prepare = FakePrepare()
-    m = BlueskyMirror(cfg, zc, prepare=prepare, git=git)
-    return m, git, prepare, cfg
+    intent_ask = FakeIntent()
+    m = BlueskyMirror(cfg, zc, intent_ask=intent_ask, git=git)
+    return m, git, intent_ask, cfg
 
 
 def _seed_published(clone_dir, slug, uri="at://did:plc:seed/app.bsky.feed.post/1", url=None):
@@ -123,9 +125,9 @@ def test_root_operator_message_commits_to_operator_repo_prepared_no_reply_to(tmp
     post_path = os.path.join(operator_dir, "posts", "zulip-100.md")
     assert os.path.exists(post_path)
     content = open(post_path).read()
-    assert content == "---\n---\n\nPREPARED: Do rebuilds dominate?\n"
+    assert content == "---\n---\n\nA coherent question?\n"   # intent-composed question
     assert "reply_to" not in content
-    assert prepare.calls == ["Do rebuilds dominate?"]
+    assert len(prepare.calls) == 1 and "Do rebuilds dominate?" in prepare.calls[0]
     assert not os.path.isdir(agent_dir)  # agent repo never touched
     pushes = [c for c in git.calls if c[0][0] == "push" and c[1] == operator_dir]
     assert len(pushes) == 1
@@ -147,7 +149,7 @@ def test_agent_reply_threads_under_published_operator_post(tmp_path):
     assert os.path.exists(post_path)
     content = open(post_path).read()
     assert content == f"---\nreply_to: {uri}\n---\n\nRarely, unless CI is I/O bound.\n"
-    assert prepare.calls == []  # agent text is used as-is, never prepared
+    assert prepare.calls == []  # agent text is verbatim; intent runs only for the operator
     # message 100's post file was not rewritten (already published, left alone)
     assert open(os.path.join(operator_dir, "posts", "zulip-100.md")).read() == "---\n---\n\nseed\n"
 
@@ -170,7 +172,7 @@ def test_already_mirrored_messages_are_skipped_and_chain_advances(tmp_path):
     # the third message threads under the SECOND published post, not the first
     post_path = os.path.join(operator_dir, "posts", "zulip-102.md")
     content = open(post_path).read()
-    assert content == f"---\nreply_to: {second_uri}\n---\n\nPREPARED: Follow-up\n"
+    assert content == f"---\nreply_to: {second_uri}\n---\n\nA coherent question?\n"
     # the two already-published posts were never rewritten
     assert not any(c[0][0] == "commit" for c in git.calls if "zulip-100" in str(c) or "zulip-101" in str(c))
 
