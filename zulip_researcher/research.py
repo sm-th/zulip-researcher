@@ -97,55 +97,63 @@ class Research:
             topic = title
         receipt = self.zc.send_message(stream_id, topic, "🔎 Researching…")
 
-        self.wiki.prepare(cfg.wiki_clone_dir, cfg.wiki_repo_url, cfg.wiki_base_branch,
-                          branch, cfg.wiki_push_token, cfg.git_user_name, cfg.git_user_email,
-                          resume=resume)
+        try:
+            self.wiki.prepare(cfg.wiki_clone_dir, cfg.wiki_repo_url, cfg.wiki_base_branch,
+                              branch, cfg.wiki_push_token, cfg.git_user_name,
+                              cfg.git_user_email, resume=resume)
 
-        task = (SYSTEM % {"slug": s}) + f"\n\nQUESTION:\n{question}\n"
-        detail = message if message and message != question else ""
-        if detail:
-            task += f"\nDetails:\n{detail}\n"
-        links = _urls(message)
-        if links:
-            task += (
-                "\nAttached link(s) to ingest — treat this as the primary task:\n"
-                + "\n".join(f"- {u}" for u in links)
-                + "\nFor each link, delegate the fetch to a no-access sub-agent and:\n"
-                "1. Create one `type: source` page capturing its key points, a concise "
-                "summary, and the author's conclusions; frontmatter `url`/`author`/"
-                "`date`, title ending with the domain in parentheses.\n"
-                "2. Create an atomic `type: concept` page for each distinct concept the "
-                "source introduces, densely [[wikilinked]] and citing the source under "
-                "`## Sources`.\n"
-                "The core page synthesises the links and links out to the source and "
-                "concept pages.\n"
-            )
-        if resume:
-            task += ("\nThe #research thread so far — continue from it and update the "
-                     "existing page:\n\n" + self._transcript(stream_id, topic))
+            task = (SYSTEM % {"slug": s}) + f"\n\nQUESTION:\n{question}\n"
+            detail = message if message and message != question else ""
+            if detail:
+                task += f"\nDetails:\n{detail}\n"
+            links = _urls(message)
+            if links:
+                task += (
+                    "\nAttached link(s) to ingest — treat this as the primary task:\n"
+                    + "\n".join(f"- {u}" for u in links)
+                    + "\nFor each link, delegate the fetch to a no-access sub-agent and:\n"
+                    "1. Create one `type: source` page capturing its key points, a concise "
+                    "summary, and the author's conclusions; frontmatter `url`/`author`/"
+                    "`date`, title ending with the domain in parentheses.\n"
+                    "2. Create an atomic `type: concept` page for each distinct concept the "
+                    "source introduces, densely [[wikilinked]] and citing the source under "
+                    "`## Sources`.\n"
+                    "The core page synthesises the links and links out to the source and "
+                    "concept pages.\n"
+                )
+            if resume:
+                task += ("\nThe #research thread so far — continue from it and update the "
+                         "existing page:\n\n" + self._transcript(stream_id, topic))
 
-        self.zc.edit_message(receipt, "🌐 Reading sources and drafting the page…")
-        out = self.omp_run(task, tools=True, approval="yolo", session=False,
-                           json_mode=True, cwd=cfg.wiki_clone_dir)
+            self.zc.edit_message(receipt, "🌐 Reading sources and drafting the page…")
+            out = self.omp_run(task, tools=True, approval="yolo", session=False,
+                               json_mode=True, cwd=cfg.wiki_clone_dir,
+                               timeout=cfg.omp_timeout)
 
-        self.zc.edit_message(receipt, "📤 Publishing to the wiki…")
-        if self.wiki.has_changes(cfg.wiki_clone_dir):
-            self.wiki.commit_all(cfg.wiki_clone_dir, f"research: {title[:60]}")
-        self.wiki.push(cfg.wiki_clone_dir, branch)
+            self.zc.edit_message(receipt, "📤 Publishing to the wiki…")
+            if self.wiki.has_changes(cfg.wiki_clone_dir):
+                self.wiki.commit_all(cfg.wiki_clone_dir, f"research: {title[:60]}")
+            self.wiki.push(cfg.wiki_clone_dir, branch)
 
-        page_url = f"{cfg.wiki_site_url}/{s}/"
-        pr_url = self._open_pr(branch, title, page_url)
+            page_url = f"{cfg.wiki_site_url}/{s}/"
+            pr_url = self._open_pr(branch, title, page_url)
 
-        answer, followups = _split(omp.assistant_text(out))
-        body = f"{answer}\n\n📄 {page_url}" + (f"\nPR: {pr_url}" if pr_url else "")
-        # Research posts the full, visible answer (the primary result — not a spoiler).
-        self.zc.edit_message(receipt, body)
-        if followups:
-            # A separate message, marked so the Bluesky mirror never publishes it.
-            self.zc.send_message(stream_id, topic, bluesky_mirror.NO_MIRROR + "\n"
-                "**Follow-ups** — copy any worth pursuing into a new `#research` topic:\n"
-                + "\n".join(f"- {q}" for q in followups))
-        self._mirror_topic(topic)
+            answer, followups = _split(omp.assistant_text(out))
+            body = f"{answer}\n\n📄 {page_url}" + (f"\nPR: {pr_url}" if pr_url else "")
+            # Research posts the full, visible answer (the primary result — not a spoiler).
+            self.zc.edit_message(receipt, body)
+            if followups:
+                # A separate message, marked so the Bluesky mirror never publishes it.
+                self.zc.send_message(stream_id, topic, bluesky_mirror.NO_MIRROR + "\n"
+                    "**Follow-ups** — copy any worth pursuing into a new `#research` topic:\n"
+                    + "\n".join(f"- {q}" for q in followups))
+            self._mirror_topic(topic)
+        except Exception as e:
+            self.zc.edit_message(
+                receipt,
+                f"⚠️ Research failed — {type(e).__name__}: {str(e)[:200]}\n"
+                "I'll retry on the next run.")
+            raise
 
     def _mirror_topic(self, topic: str) -> None:
         try:

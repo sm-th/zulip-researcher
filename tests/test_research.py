@@ -57,6 +57,7 @@ def _cfg():
         wiki_base_branch="main", push_token="tok", wiki_push_token="tok", git_user_name="A",
         git_user_email="a@example.com", wiki_site_url="https://wiki.example.com",
         research_stream="research", prepare_policy="faithful-en-v1", prepare_format="markdown",
+        omp_timeout=600,
     )
 
 
@@ -219,3 +220,24 @@ def test_research_ingests_attached_link():
     assert "https://example.com/paper" in task
     assert "to ingest" in task
     assert "type: concept" in task    # concept cards requested (issue #48)
+
+
+def test_research_reports_a_failure_in_the_receipt():
+    zc = FakeZulip({"content": "Do rebuilds dominate?"})
+    fw = FakeWiki()
+
+    def boom_omp(task, **kw):
+        raise RuntimeError("omp timed out after 600 seconds")
+
+    t = Trigger(stream="research", topic="Do rebuilds dominate?", author_id=7,
+                message_id=1, is_mention=False, is_topic_start=True)
+    raised = False
+    try:
+        Research(_cfg(), zc, omp_run=boom_omp, wiki_ops=fw,
+                 open_pr=lambda *a, **k: "").research(t)
+    except RuntimeError:
+        raised = True
+
+    assert raised                                # the failure still propagates
+    assert "Research failed" in zc.edits[-1][1]  # ...but the receipt is not left hanging
+    assert "omp timed out" in zc.edits[-1][1]
