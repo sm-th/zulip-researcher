@@ -29,6 +29,7 @@ import sys
 import time
 
 from . import config, wiki, zulip
+from .prepare import PreparationClient
 
 OPERATOR = "operator"
 AGENT = "agent"
@@ -81,9 +82,10 @@ def _agent_post(raw: str, wiki_site: str) -> "tuple[str, str | None]":
 class BlueskyMirror:
     """Mirrors one `#research` topic's messages to Bluesky, oldest-first."""
 
-    def __init__(self, cfg: config.Config, zc: "zulip.Zulip", git=wiki):
+    def __init__(self, cfg: config.Config, zc: "zulip.Zulip", prepare=None, git=wiki):
         self.cfg = cfg
         self.zc = zc
+        self.prepare = prepare or PreparationClient(cfg.prepare_url, cfg.prepare_token)
         self.git = git
         self._operator_id: int | None = None
         self._agent_id: int | None = None
@@ -175,6 +177,19 @@ class BlueskyMirror:
             body = rest.lstrip("\n")
         return body.strip(), link
 
+    def _prepare(self, raw: str) -> str:
+        """Normalize the operator's raw text into clean, publishable markdown via the
+        preparation service. Falls back to the raw text (loudly) if it is
+        unreachable, so publishing degrades rather than stalls."""
+        try:
+            doc = self.prepare.prepare(raw, policy=self.cfg.prepare_policy,
+                                       fmt=self.cfg.prepare_format)
+            return (doc.body or "").strip() or raw
+        except Exception as e:  # noqa: BLE001 — never block the mirror on prepare
+            print(f"[mirror] prepare failed, publishing raw text: {e}",
+                  file=sys.stderr, flush=True)
+            return raw
+
     def _write_and_push(self, clone_dir: str, slug: str, message_id: int,
                          body: str, reply_to: str | None, link: str | None = None) -> None:
         path = self._post_path(clone_dir, slug)
@@ -229,7 +244,10 @@ class BlueskyMirror:
 
             raw = m.get("content", "")
             if identity == OPERATOR:
-                body, link = raw, _first_url(raw)            # verbatim: link + comment
+                # My text: normalize to clean, publishable markdown before publishing
+                # (faithful policy — translate/tidy, never invent). Link stays the
+                # operator's original URL for the embed card.
+                body, link = self._prepare(raw), _first_url(raw)
             else:
                 body, link = _agent_post(raw, self.cfg.wiki_site_url)  # answer + wiki link
             print(f"[mirror] {identity} zulip:{message_id}: writing body={body!r} "
