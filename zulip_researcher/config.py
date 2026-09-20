@@ -55,6 +55,9 @@ class Config:
     git_user_name: str
     git_user_email: str
     push_token: str
+    wiki_push_token: str
+    bluesky_operator_push_token: str
+    bluesky_agent_push_token: str
     # Behaviour
     poll_interval: int
     wiki_ready_timeout: int
@@ -112,6 +115,7 @@ def _env(name: str, doc: dict, key: str, default: str) -> str:
 
 def load() -> Config:
     doc = _load_toml(os.environ.get("RESEARCHER_CONFIG", "zulip_researcher.toml"))
+    push = os.environ.get("PUSH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
     return Config(
         zulip_url=_req_env("ZULIP_URL").rstrip("/"),
         zulip_api_key=_req_env("ZULIP_API_KEY"),
@@ -136,7 +140,10 @@ def load() -> Config:
         bluesky_branch=_env("RESEARCHER_BLUESKY_BRANCH", doc, "bluesky_branch", "main"),
         git_user_name=_env("RESEARCHER_GIT_USER_NAME", doc, "git_user_name", "smith.wiki agent"),
         git_user_email=_env("RESEARCHER_GIT_USER_EMAIL", doc, "git_user_email", "agent@smith.wiki"),
-        push_token=os.environ.get("PUSH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""),
+        push_token=push,
+        wiki_push_token=os.environ.get("WIKI_PUSH_TOKEN") or push,
+        bluesky_operator_push_token=os.environ.get("BLUESKY_OPERATOR_PUSH_TOKEN") or push,
+        bluesky_agent_push_token=os.environ.get("BLUESKY_AGENT_PUSH_TOKEN") or push,
         poll_interval=int(_env("RESEARCHER_POLL_INTERVAL", doc, "poll_interval", "60")),
         wiki_ready_timeout=int(_env("RESEARCHER_WIKI_READY_TIMEOUT", doc, "wiki_ready_timeout", "600")),
         wiki_ready_interval=int(_env("RESEARCHER_WIKI_READY_INTERVAL", doc, "wiki_ready_interval", "10")),

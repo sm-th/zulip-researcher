@@ -62,9 +62,9 @@ class Research:
             lambda stream, topic: bluesky_mirror.BlueskyMirror(cfg, zc).mirror_topic(stream, topic)
         )
 
-    def _question(self, stream_id: int, t: Trigger) -> str:
-        first = self.zc.first_message(stream_id, t.topic)
-        return ((first or {}).get("content", "").strip()) or t.topic
+    def _opening(self, stream_id: int, topic: str) -> str:
+        first = self.zc.first_message(stream_id, topic)
+        return (first or {}).get("content", "").strip()
 
     def _transcript(self, stream_id: int, topic: str) -> str:
         return "\n\n".join(
@@ -75,15 +75,18 @@ class Research:
     def research(self, t: Trigger, resume: bool = False) -> None:
         cfg = self.cfg
         stream_id = self.zc.get_stream_id(cfg.research_stream)
-        question = self._question(stream_id, t)
+        question = t.topic  # the #research topic title IS the question
+        opening = self._opening(stream_id, t.topic)
         s = slug(t.topic)
         branch = f"researcher/{s}"
 
         self.wiki.prepare(cfg.wiki_clone_dir, cfg.wiki_repo_url, cfg.wiki_base_branch,
-                          branch, cfg.push_token, cfg.git_user_name, cfg.git_user_email,
+                          branch, cfg.wiki_push_token, cfg.git_user_name, cfg.git_user_email,
                           resume=resume)
 
         task = (SYSTEM % {"slug": s}) + f"\n\nQUESTION:\n{question}\n"
+        if opening and opening != question:
+            task += f"\nThe thread's opening message:\n{opening}\n"
         if resume:
             task += ("\nThe #research thread so far — continue from it and update the "
                      "existing page:\n\n" + self._transcript(stream_id, t.topic))
@@ -119,7 +122,7 @@ class Research:
     def _open_pr(self, branch: str, question: str, page_url: str) -> str:
         try:
             return self.open_pr(
-                github.repo_slug(self.cfg.wiki_repo_url), token=self.cfg.push_token,
+                github.repo_slug(self.cfg.wiki_repo_url), token=self.cfg.wiki_push_token,
                 head=branch, base=self.cfg.wiki_base_branch,
                 title=question[:72], body=f"Research for: {question}\n\nPage: {page_url}",
             )

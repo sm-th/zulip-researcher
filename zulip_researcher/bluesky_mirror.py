@@ -83,19 +83,23 @@ class BlueskyMirror:
             return AGENT
         return None
 
-    def _repo(self, identity: str) -> tuple[str, str]:
-        """(repo_url, clone_dir) for the identity's Bluesky repo."""
+    def _repo(self, identity: str) -> tuple[str, str, str]:
+        """(repo_url, clone_dir, push_token) for the identity's Bluesky repo."""
         cfg = self.cfg
         if identity == OPERATOR:
-            return cfg.bluesky_operator_repo_url, os.path.join(cfg.bluesky_clone_dir, OPERATOR)
-        return cfg.bluesky_agent_repo_url, os.path.join(cfg.bluesky_clone_dir, AGENT)
+            return (cfg.bluesky_operator_repo_url,
+                    os.path.join(cfg.bluesky_clone_dir, OPERATOR),
+                    cfg.bluesky_operator_push_token)
+        return (cfg.bluesky_agent_repo_url,
+                os.path.join(cfg.bluesky_clone_dir, AGENT),
+                cfg.bluesky_agent_push_token)
 
-    def _sync(self, repo_url: str, clone_dir: str) -> None:
+    def _sync(self, repo_url: str, clone_dir: str, token: str) -> None:
         """Clone-or-pull the target repo's branch, once per mirror pass."""
         if clone_dir in self._synced:
             return
         cfg = self.cfg
-        auth = self.git._auth_url(repo_url, cfg.push_token)
+        auth = self.git._auth_url(repo_url, token)
         if not os.path.isdir(os.path.join(clone_dir, ".git")):
             parent = os.path.dirname(clone_dir.rstrip("/")) or "."
             os.makedirs(parent, exist_ok=True)
@@ -153,8 +157,8 @@ class BlueskyMirror:
                 continue
             message_id = m["id"]
             slug = _slug(message_id)
-            repo_url, clone_dir = self._repo(identity)
-            self._sync(repo_url, clone_dir)
+            repo_url, clone_dir, token = self._repo(identity)
+            self._sync(repo_url, clone_dir, token)
 
             if os.path.exists(self._post_path(clone_dir, slug)):
                 uri = self._published_uri(clone_dir, slug)

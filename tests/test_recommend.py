@@ -47,6 +47,7 @@ def test_recommend_posts_candidate_questions_into_thread():
     assert "How often do envs churn?" in body      # numbering stripped
     assert "#research" in body
     assert "real bottleneck" in seen["task"]        # discussion reached omp
+    assert "Thread title: agents" in seen["task"]   # seed topic title reached omp
 
 
 def test_recommend_ignores_empty_thread():
