@@ -17,9 +17,8 @@ import re
 import sys
 from typing import Callable
 
-from . import bluesky_mirror, config, github, omp, wiki, zulip
+from . import bluesky_mirror, config, github, intent, omp, wiki, zulip
 from .loop import Trigger
-from .prepare import PreparationClient
 from .slug import slug
 
 SYSTEM = """You are Agent Smith, author of a public discourse-graph wiki. Research the
@@ -48,13 +47,14 @@ questions exactly as: `FOLLOWUPS: question one || question two`.
 OmpRun = Callable[..., str]
 OpenPr = Callable[..., str]
 MirrorTopic = Callable[[str, str], None]
+OmpAsk = Callable[[str], str]
 
 
 class Research:
     def __init__(self, cfg: config.Config, zc: "zulip.Zulip",
                  omp_run: OmpRun | None = None, wiki_ops=wiki,
                  open_pr: OpenPr | None = None, mirror: MirrorTopic | None = None,
-                 prepare: PreparationClient | None = None):
+                 omp_ask: OmpAsk | None = None):
         self.cfg = cfg
         self.zc = zc
         self.omp_run = omp_run or omp.run
@@ -63,7 +63,7 @@ class Research:
         self.mirror = mirror or (
             lambda stream, topic: bluesky_mirror.BlueskyMirror(cfg, zc).mirror_topic(stream, topic)
         )
-        self.prepare = prepare or PreparationClient(cfg.prepare_url, cfg.prepare_token)
+        self.omp_ask = omp_ask or (lambda task: omp.ask(task))
 
     def _opening(self, stream_id: int, topic: str) -> str:
         first = self.zc.first_message(stream_id, topic)
@@ -79,20 +79,22 @@ class Research:
         cfg = self.cfg
         stream_id = self.zc.get_stream_id(cfg.research_stream)
         opening = self._opening(stream_id, t.topic)
-        prepared = self.prepare.prepare(body=(opening or t.topic), title=t.topic,
-                                        policy=cfg.prepare_policy, fmt=cfg.prepare_format)
+        message = opening or t.topic
+
         untitled = zulip.is_untitled(t.topic)
-        question = (prepared.title or ("" if untitled else t.topic) or opening).strip()
-        detail = (prepared.body or "").strip()
+        if untitled:
+            # The intent step reads the dropped message (usually a link) and decides
+            # the task: a short thread title and one coherent research question.
+            title, question = intent.derive(message, ask=self.omp_ask)
+        else:
+            title, question = t.topic, t.topic
+        s = slug(title)
+        branch = f"researcher/{s}"
 
         topic = t.topic
-        if untitled:
-            # A loose message (empty topic or "general chat"): move it into its own
-            # auto-titled thread first.
-            self.zc.move_message(t.message_id, question)
-            topic = question
-        s = slug(question)
-        branch = f"researcher/{s}"
+        if untitled and title != t.topic:
+            self.zc.move_message(t.message_id, title)  # move just this one message
+            topic = title
         receipt = self.zc.send_message(stream_id, topic, "🔎 Researching…")
 
         self.wiki.prepare(cfg.wiki_clone_dir, cfg.wiki_repo_url, cfg.wiki_base_branch,
@@ -100,9 +102,10 @@ class Research:
                           resume=resume)
 
         task = (SYSTEM % {"slug": s}) + f"\n\nQUESTION:\n{question}\n"
-        if detail and detail != question:
+        detail = message if message and message != question else ""
+        if detail:
             task += f"\nDetails:\n{detail}\n"
-        links = _urls(f"{opening}\n{detail}")
+        links = _urls(message)
         if links:
             task += (
                 "\nAttached link(s) to ingest — treat this as the primary task:\n"
@@ -127,11 +130,11 @@ class Research:
 
         self.zc.edit_message(receipt, "📤 Publishing to the wiki…")
         if self.wiki.has_changes(cfg.wiki_clone_dir):
-            self.wiki.commit_all(cfg.wiki_clone_dir, f"research: {question[:60]}")
+            self.wiki.commit_all(cfg.wiki_clone_dir, f"research: {title[:60]}")
         self.wiki.push(cfg.wiki_clone_dir, branch)
 
         page_url = f"{cfg.wiki_site_url}/{s}/"
-        pr_url = self._open_pr(branch, question, page_url)
+        pr_url = self._open_pr(branch, title, page_url)
 
         answer, followups = _split(omp.assistant_text(out))
         body = f"{answer}\n\n📄 {page_url}" + (f"\nPR: {pr_url}" if pr_url else "")

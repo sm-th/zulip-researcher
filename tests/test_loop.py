@@ -90,3 +90,12 @@ def test_run_registers_event_queue_with_all_public_streams():
         pass
     assert zc.register_calls
     assert zc.register_calls[0]["all_public_streams"] is True
+
+
+def test_classify_treats_a_loose_message_as_a_fresh_research():
+    from zulip_researcher.loop import classify, RESEARCH, RESUME
+    base = dict(stream="research", author_id=7, message_id=1, is_mention=False)
+    loose = Trigger(topic="general chat", is_topic_start=False, **base)
+    assert classify(loose, "research", 7) == RESEARCH   # loose -> always fresh, never resume
+    reply = Trigger(topic="A real topic", is_topic_start=False, **base)
+    assert classify(reply, "research", 7) == RESUME

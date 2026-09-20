@@ -52,6 +52,8 @@ def classify(t: Trigger, research_stream: str, operator_id: int) -> str:
     if t.author_id != operator_id:
         return IGNORE
     if t.stream == research_stream:
+        if zulip.is_untitled(t.topic):
+            return RESEARCH  # a loose message is always its own fresh research
         return RESEARCH if t.is_topic_start else RESUME
     if t.is_mention:
         return RECOMMEND
@@ -159,6 +161,20 @@ class Loop:
         for topic in self.zc.get_topics(self.stream_id):
             name = topic.get("name", "")
             if topic_is_resolved(name):
+                continue
+            if zulip.is_untitled(name):
+                # Loose messages share this catch-all topic; each operator message is
+                # its own research, so dispatch them individually (not just the first).
+                for m in self.zc.get_messages(self.stream_id, name):
+                    if m.get("sender_id") != self.operator_id:
+                        continue
+                    if DONE in self.zc.message_reactions(m["id"]):
+                        continue
+                    t = Trigger(stream=self.cfg.research_stream, topic=name,
+                                author_id=m.get("sender_id"), message_id=m["id"],
+                                is_mention=False, is_topic_start=False)
+                    if self._safe_dispatch(t) != IGNORE:
+                        handled += 1
                 continue
             first = self.zc.first_message(self.stream_id, name)
             if not first:
