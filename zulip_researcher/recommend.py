@@ -39,17 +39,21 @@ class Recommend:
         transcript = self._transcript(stream_id, t.topic)
         if not transcript.strip():
             return
+        receipt = self.zc.send_message(
+            stream_id, t.topic, "🔎 Reading the thread and proposing research questions…"
+        )
         answer = self.omp_ask(
             f"{SYSTEM}\n\nThread title: {t.topic}\n\n--- discussion ---\n\n{transcript}"
         )
         questions = _questions(answer)
         if not questions:
+            self.zc.edit_message(receipt, "No research questions surfaced from this thread.")
             return
         body = (
             "**Candidate research questions** — copy the ones worth pursuing into "
             "`#research`:\n\n" + "\n".join(f"- {q}" for q in questions)
         )
-        self.zc.send_message(stream_id, t.topic, body)
+        self.zc.edit_message(receipt, body)
 
 
 def _questions(answer: str) -> list[str]:

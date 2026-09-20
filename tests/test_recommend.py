@@ -9,6 +9,8 @@ class FakeZulip:
     def __init__(self, messages):
         self._messages = messages
         self.sent = []
+        self.edits = []
+        self._next_id = 1
 
     def get_stream_id(self, name):
         return 10
@@ -17,8 +19,13 @@ class FakeZulip:
         return self._messages
 
     def send_message(self, stream_id, topic, content):
-        self.sent.append((stream_id, topic, content))
-        return 1
+        mid = self._next_id
+        self._next_id += 1
+        self.sent.append((stream_id, topic, content, mid))
+        return mid
+
+    def edit_message(self, message_id, content):
+        self.edits.append((message_id, content))
 
 
 def _mention(stream="design", topic="agents"):
@@ -41,8 +48,13 @@ def test_recommend_posts_candidate_questions_into_thread():
     Recommend(cfg=object(), zc=zc, omp_ask=fake_ask).recommend(_mention())
 
     assert len(zc.sent) == 1
-    _sid, topic, body = zc.sent[0]
+    _stream_id, topic, status, receipt_id = zc.sent[0]
     assert topic == "agents"
+    assert "Reading the thread" in status
+
+    assert len(zc.edits) == 1
+    edited_id, body = zc.edits[0]
+    assert edited_id == receipt_id
     assert "When do image rebuilds dominate?" in body
     assert "How often do envs churn?" in body      # numbering stripped
     assert "#research" in body
@@ -54,12 +66,18 @@ def test_recommend_ignores_empty_thread():
     zc = FakeZulip([])
     Recommend(cfg=object(), zc=zc, omp_ask=lambda task: "Q?").recommend(_mention())
     assert zc.sent == []
+    assert zc.edits == []
 
 
 def test_recommend_ignores_when_no_questions():
     zc = FakeZulip([{"sender_full_name": "A", "content": "hi"}])
     Recommend(cfg=object(), zc=zc, omp_ask=lambda task: "   \n\n").recommend(_mention())
-    assert zc.sent == []
+    assert len(zc.sent) == 1
+    assert len(zc.edits) == 1
+    edited_id, body = zc.edits[0]
+    assert edited_id == zc.sent[0][3]
+    assert "No research questions" in body
+    assert "- " not in body
 
 
 def test_assistant_text_extracts_from_ndjson():
