@@ -32,12 +32,19 @@ class FakeZulip:
     def __init__(self, messages, user_ids):
         self._messages = messages
         self._user_ids = user_ids
+        self.sent = []
 
     def get_stream_id(self, name):
         return 1
 
     def get_messages(self, stream_id, topic):
         return self._messages
+
+    def send_message(self, stream_id, topic, content):
+        self.sent.append((topic, content))
+        mid = 1000 + len(self.sent)
+        self._messages.append({"id": mid, "sender_id": None, "content": content})
+        return mid
 
     def user_id_for_email(self, email):
         return self._user_ids[email]
@@ -84,7 +91,7 @@ def _mirror(tmp_path, messages):
     return m, git, prepare, cfg
 
 
-def _seed_published(clone_dir, slug, uri="at://did:plc:seed/app.bsky.feed.post/1"):
+def _seed_published(clone_dir, slug, uri="at://did:plc:seed/app.bsky.feed.post/1", url=None):
     """Pre-populate an already-cloned, already-published post on disk."""
     posts = os.path.join(clone_dir, "posts")
     os.makedirs(os.path.join(clone_dir, ".git"), exist_ok=True)
@@ -92,7 +99,7 @@ def _seed_published(clone_dir, slug, uri="at://did:plc:seed/app.bsky.feed.post/1
     with open(os.path.join(posts, f"{slug}.md"), "w") as f:
         f.write("---\n---\n\nseed\n")
     with open(os.path.join(posts, f"{slug}.state.json"), "w") as f:
-        json.dump({"uri": uri}, f)
+        json.dump({"uri": uri, **({"url": url} if url else {})}, f)
     return uri
 
 
@@ -244,3 +251,20 @@ def test_agent_reply_is_reached_across_passes_without_a_re_trigger(tmp_path):
     assert os.path.exists(op_post)         # operator root mirrored
     assert os.path.exists(agent_post)      # agent reply reached without a re-trigger
     assert "reply_to: at://did:plc:x/app.bsky.feed.post/zulip-100" in open(agent_post).read()
+
+
+def test_confirms_a_published_post_url_in_the_topic_once(tmp_path):
+    from zulip_researcher.bluesky_mirror import NO_MIRROR
+    messages = [{"id": 100, "sender_id": OPERATOR_ID, "content": "Q"}]
+    m, git, prepare, cfg = _mirror(tmp_path, messages)
+    operator_dir = os.path.join(cfg.bluesky_clone_dir, "operator")
+    _seed_published(operator_dir, "zulip-100", uri="at://x/app.bsky.feed.post/1",
+                    url="https://bsky.app/profile/op.example/post/1")
+
+    m.mirror_topic("research", "t")
+    m.mirror_topic("research", "t")   # a second full run re-sends nothing (idempotent)
+
+    confirmations = [c for _t, c in m.zc.sent]
+    assert len(confirmations) == 1
+    assert "https://bsky.app/profile/op.example/post/1" in confirmations[0]
+    assert NO_MIRROR in confirmations[0]   # the confirmation is not itself mirrored

@@ -132,6 +132,13 @@ class BlueskyMirror:
         with open(path, encoding="utf-8") as f:
             return (json.load(f) or {}).get("uri")
 
+    def _published_url(self, clone_dir: str, slug: str) -> str | None:
+        path = self._state_path(clone_dir, slug)
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as f:
+            return (json.load(f) or {}).get("url")
+
     def _write_and_push(self, clone_dir: str, slug: str, message_id: int,
                          body: str, reply_to: str | None) -> None:
         path = self._post_path(clone_dir, slug)
@@ -163,8 +170,9 @@ class BlueskyMirror:
         committed but not yet published, or a new post was just written — and
         False once every mirrorable message is published."""
         stream_id = self.zc.get_stream_id(stream)
+        msgs = self.zc.get_messages(stream_id, topic)
         prev_at_uri: str | None = None
-        for m in self.zc.get_messages(stream_id, topic):
+        for m in msgs:
             if NO_MIRROR in (m.get("content") or ""):
                 continue  # e.g. research follow-ups: never mirrored
             identity = self._identity(m.get("sender_id"))
@@ -179,6 +187,7 @@ class BlueskyMirror:
                 uri = self._published_uri(clone_dir, slug)
                 if uri is None:
                     return True  # committed but not yet published; retry next pass
+                self._confirm_published(stream_id, topic, msgs, clone_dir, slug)
                 prev_at_uri = uri
                 continue
 
@@ -187,6 +196,18 @@ class BlueskyMirror:
                 body = self.prepare.prepare(body).body
             self._write_and_push(clone_dir, slug, message_id, body, prev_at_uri)
             return True  # its AT-URI is unknown until CI publishes it; retry
+        return False
+
+    def _confirm_published(self, stream_id: int, topic: str, msgs: list,
+                           clone_dir: str, slug: str) -> None:
+        """Post the published post's Bluesky URL back into the topic, once — so the
+        operator sees it went live. Idempotent: skipped when a message already
+        carries that URL. Marked NO_MIRROR so it is not itself mirrored, and it is a
+        bot message so it never triggers a research run."""
+        url = self._published_url(clone_dir, slug)
+        if not url or any(url in (mm.get("content") or "") for mm in msgs):
+            return
+        self.zc.send_message(stream_id, topic, f"{NO_MIRROR}\n🦋 Published to Bluesky: {url}")
 
 
 __all__ = ["BlueskyMirror", "BlueskyMirrorError"]
