@@ -1,10 +1,11 @@
 """CLI.
 
-  python -m zulip_researcher run     poll forever
-  python -m zulip_researcher once    one reconcile pass, then exit
-  python -m zulip_researcher show    read-only: list #research topics + reactions
+  run                          poll forever
+  once                         one reconcile pass, then exit
+  show                         list #research topics + reactions
+  recommend <stream> <topic>   run Recommend once on a thread (end-to-end smoke)
 
-Set RESEARCHER_DRY_RUN=1 to run without mutating Zulip, git, or Bluesky.
+Set RESEARCHER_DRY_RUN=1 to run without mutating Zulip.
 """
 
 from __future__ import annotations
@@ -30,13 +31,12 @@ def _cmd_show(cfg: config.Config) -> int:
 
 def main() -> int:
     argv = sys.argv[1:]
-    # Help must never touch configuration or secrets.
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 0
 
     cmd = argv[0]
-    if cmd not in ("run", "once", "show"):
+    if cmd not in ("run", "once", "show", "recommend"):
         print(f"unknown command: {cmd}", file=sys.stderr)
         return 2
 
@@ -51,8 +51,20 @@ def main() -> int:
     if cmd == "show":
         return _cmd_show(cfg)
 
-    from . import loop, modes
-    lp = loop.Loop(cfg, modes=modes.build(cfg))
+    from . import modes
+    m = modes.build(cfg)
+
+    if cmd == "recommend":
+        if len(argv) < 3:
+            print("usage: recommend <stream> <topic>", file=sys.stderr)
+            return 2
+        from .loop import Trigger
+        m.recommend(Trigger(stream=argv[1], topic=argv[2], author_id=0, message_id=0,
+                            is_mention=True, is_topic_start=False))
+        return 0
+
+    from . import loop
+    lp = loop.Loop(cfg, modes=m)
     if cmd == "run":
         lp.run()
     else:
