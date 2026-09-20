@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import sys
+import time
 from typing import Callable
 
 from . import bluesky_mirror, config, github, intent, omp, wiki, zulip
@@ -22,8 +23,11 @@ from .loop import Trigger
 from .slug import slug
 
 SYSTEM = """You are Agent Smith, author of a public discourse-graph wiki. Research the
-QUESTION and publish the result as atomic, densely [[wikilinked]] Markdown pages in the
-`site/` directory of the repository at your working directory.
+QUESTION (usually a link to ingest) and publish the result as atomic, densely
+[[wikilinked]] Markdown pages in the `site/` directory of the repo at your working directory.
+
+Work in a SINGLE pass, by yourself — do NOT spawn sub-agents. Fetch and read the link(s)
+directly, then write the pages.
 
 Method: pick the approach the question needs — evidence synthesis for empirical
 questions, a landscape map for broad ones, a criteria verdict for comparisons, a
@@ -32,9 +36,8 @@ a source: one `type: source` page per cited URL (frontmatter `url`, `author`, `d
 title ends with the domain in parentheses), cited from a `## Sources` section. Give
 `type: claim` pages an honest `status:` of established / tentative / speculative.
 
-Safety: never open web pages yourself. Delegate all fetching and reading of web content
-to isolated sub-agents that have no credentials and no repository access; work only from
-the text they return.
+Reuse what exists: `grep` the `site/` directory for related page titles and [[link]] them;
+only create a page that does not already exist.
 
 Page frontmatter: `title`, `type` (concept/source/claim/question/moc/tool), `by`, and
 optional `tags`. The core page's slug MUST be `%(slug)s`.
@@ -47,6 +50,12 @@ questions exactly as: `FOLLOWUPS: question one || question two`.
 OmpRun = Callable[..., str]
 OpenPr = Callable[..., str]
 MirrorTopic = Callable[[str, str], None]
+
+# Single-pass research toolset: everything the agent needs to fetch, grep and write —
+# but NOT `task` (no sub-agents) or `todo`/`computer`/`python`.
+RESEARCH_TOOLS = "read,bash,edit,write,grep,glob,web_search,browser"
+_TOOL_EMOJI = {"read": "📖", "bash": "🖥️", "edit": "✍️", "write": "✍️",
+               "grep": "🔎", "glob": "🔎", "web_search": "🌐", "browser": "🌐"}
 OmpAsk = Callable[[str], str]
 
 
@@ -57,7 +66,7 @@ class Research:
                  omp_ask: OmpAsk | None = None):
         self.cfg = cfg
         self.zc = zc
-        self.omp_run = omp_run or omp.run
+        self.omp_run = omp_run or omp.run_stream
         self.wiki = wiki_ops
         self.open_pr = open_pr or github.open_pr
         self.mirror = mirror or (
@@ -129,7 +138,7 @@ class Research:
                 task += (
                     "\nAttached link(s) to ingest — treat this as the primary task:\n"
                     + "\n".join(f"- {u}" for u in links)
-                    + "\nFor each link, delegate the fetch to a no-access sub-agent and:\n"
+                    + "\nFor each link, fetch and read it yourself, then:\n"
                     "1. Create one `type: source` page capturing its key points, a concise "
                     "summary, and the author's conclusions; frontmatter `url`/`author`/"
                     "`date`, title ending with the domain in parentheses.\n"
@@ -144,9 +153,26 @@ class Research:
                          "existing page:\n\n" + self._transcript(stream_id, topic))
 
             self.zc.edit_message(receipt, "🌐 Reading sources and drafting the page…")
-            out = self.omp_run(task, tools=True, approval="yolo", session=False,
+            step = [0]
+            last = [0.0]
+
+            def on_tool(name, intent_text, args):
+                step[0] += 1
+                now = time.monotonic()
+                if now - last[0] < 2.0:            # rate-limit the Zulip edits
+                    return
+                last[0] = now
+                label = (intent_text or name or "working").strip().splitlines()[0][:180]
+                try:
+                    self.zc.edit_message(
+                        receipt,
+                        f"🌐 Researching… · step {step[0]}\n{_TOOL_EMOJI.get(name, '🔧')} {label}")
+                except Exception:
+                    pass
+
+            out = self.omp_run(task, tools=RESEARCH_TOOLS, approval="yolo", session=False,
                                json_mode=True, cwd=cfg.wiki_clone_dir,
-                               timeout=cfg.omp_timeout)
+                               timeout=cfg.omp_timeout, on_tool=on_tool)
 
             self.zc.edit_message(receipt, "📤 Publishing to the wiki…")
             if self.wiki.has_changes(cfg.wiki_clone_dir):
