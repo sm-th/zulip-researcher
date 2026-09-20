@@ -39,6 +39,7 @@
             Env = [
               "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
               "GIT_SSL_CAINFO=/etc/ssl/certs/ca-bundle.crt"
+              "PYTHONUNBUFFERED=1"
             ];
           };
         };
