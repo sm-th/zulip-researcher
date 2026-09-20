@@ -69,6 +69,8 @@ def _cfg(tmp_path):
         zulip_api_username="research-bot@example.com",
         prepare_url="https://prepare.example.com",
         prepare_token="ptok",
+        mirror_wait_timeout=0,
+        mirror_poll_interval=0,
     )
 
 
@@ -214,3 +216,31 @@ def test_marked_messages_are_never_mirrored(tmp_path):
     m, git, _p, _c = _mirror(tmp_path, messages)
     m.mirror_topic("research", "t")
     assert not any(call[0][0] == "commit" for call in git.calls)
+
+
+def test_agent_reply_is_reached_across_passes_without_a_re_trigger(tmp_path):
+    messages = [
+        {"id": 100, "sender_id": OPERATOR_ID, "content": "Q"},
+        {"id": 101, "sender_id": AGENT_ID, "content": "A"},
+    ]
+    m, git, prepare, cfg = _mirror(tmp_path, messages)
+    cfg.mirror_wait_timeout = 10        # allow re-passes; poll is 0 so no real sleep
+
+    # Simulate each identity's publish CI: a committed post's state.json (its uri)
+    # appears one pass after the post file was written.
+    seen: dict[str, int] = {}
+
+    def staged_pub(clone_dir, slug):
+        if not os.path.exists(m._post_path(clone_dir, slug)):
+            return None
+        seen[slug] = seen.get(slug, 0) + 1
+        return f"at://did:plc:x/app.bsky.feed.post/{slug}" if seen[slug] > 1 else None
+
+    m._published_uri = staged_pub
+    m.mirror_topic("research", "t")
+
+    op_post = os.path.join(cfg.bluesky_clone_dir, "operator", "posts", "zulip-100.md")
+    agent_post = os.path.join(cfg.bluesky_clone_dir, "agent", "posts", "zulip-101.md")
+    assert os.path.exists(op_post)         # operator root mirrored
+    assert os.path.exists(agent_post)      # agent reply reached without a re-trigger
+    assert "reply_to: at://did:plc:x/app.bsky.feed.post/zulip-100" in open(agent_post).read()
