@@ -72,6 +72,7 @@ def test_research_publishes_pushes_and_replies():
     zc = FakeZulip({"content": "Do rebuilds dominate?"})
     fw = FakeWiki()
     prs = []
+    merges = []
 
     def fake_open_pr(repo, *, token, head, base, title, body):
         prs.append((repo, head, base))
@@ -79,19 +80,20 @@ def test_research_publishes_pushes_and_replies():
 
     def fake_omp(task, **kw):
         assert kw["tools"] and kw["approval"] == "yolo" and kw["cwd"] == "/tmp/wiki"
-        assert "QUESTION:\nDo rebuilds dominate?" in task   # topic title is the question
+        assert "RESEARCH THIS:\nDo rebuilds dominate?" in task   # the body drives the research
         return ('{"type":"message_end","message":{"role":"assistant","content":'
                 '[{"type":"text","text":"Rebuilds rarely dominate.\\n'
                 'FOLLOWUPS: When does churn matter? || Cost of rebuilds?"}]}}')
 
     t = Trigger(stream="research", topic="Do rebuilds dominate?", author_id=7,
                 message_id=1, is_mention=False, is_topic_start=True)
-    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
-             open_pr=fake_open_pr).research(t)
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw, open_pr=fake_open_pr,
+             merge_pr=lambda repo, number, token: merges.append((repo, number))).research(t)
 
     s = slug("Do rebuilds dominate?")
     assert ("push", f"researcher/{s}") in fw.calls
     assert prs == [("o/n", f"researcher/{s}", "main")]
+    assert merges == [("o/n", 1)]                        # the PR is auto-merged (published)
 
     assert len(zc.sent) == 2                              # receipt + separate follow-ups
     assert zc.sent[0][1] == "🔎 Researching…"
@@ -123,8 +125,9 @@ def test_slug_matches_eleventy_rules():
     assert slug("  A/B & C  ") == "a-b-c"
 
 
-def test_research_prompt_uses_title_and_opening():
+def test_research_prompt_uses_body_and_titles_the_branch():
     zc = FakeZulip({"content": "Because containers share the kernel."})
+    fw = FakeWiki()
     seen = {}
 
     def fake_omp(task, **kw):
@@ -134,11 +137,11 @@ def test_research_prompt_uses_title_and_opening():
 
     t = Trigger(stream="research", topic="Why microVMs over containers?",
                 author_id=7, message_id=1, is_mention=False, is_topic_start=True)
-    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=FakeWiki(),
+    Research(_cfg(), zc, omp_run=fake_omp, wiki_ops=fw,
              open_pr=lambda *a, **k: "").research(t)
 
-    assert "QUESTION:\nWhy microVMs over containers?" in seen["task"]   # topic title
-    assert "Because containers share the kernel." in seen["task"]        # opening body
+    assert "RESEARCH THIS:\nBecause containers share the kernel." in seen["task"]  # body drives research
+    assert ("push", f"researcher/{slug('Why microVMs over containers?')}") in fw.calls  # title names the branch
 
 
 def test_research_branch_slug_is_ascii_for_a_non_ascii_title():
@@ -168,11 +171,10 @@ def test_research_moves_untitled_message_into_auto_titled_thread():
     fw = FakeWiki()
 
     def fake_intent(task):
-        return ('{"title": "Load the example link", '
-                '"question": "What does the example article argue?"}')
+        return '{"title": "Load the example link"}'
 
     def fake_omp(task, **kw):
-        assert "QUESTION:\nWhat does the example article argue?" in task
+        assert "RESEARCH THIS:\nCheck out https://example.com/some-article" in task
         return ('{"type":"message_end","message":{"role":"assistant","content":'
                 '[{"type":"text","text":"Loaded and summarized."}]}}')
 
@@ -211,7 +213,7 @@ def test_research_ingests_attached_link():
     seen = {}
 
     def fake_intent(task):
-        return '{"title": "Ingest: Example Paper", "question": "What does the example paper argue?"}'
+        return '{"title": "Ingest: Example Paper"}'
 
     def fake_omp(task, **kw):
         seen["task"] = task

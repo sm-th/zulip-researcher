@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import sys
 import time
 
-from . import config, intent, omp, wiki, zulip
+from . import config, wiki, zulip
 
 OPERATOR = "operator"
 AGENT = "agent"
@@ -45,10 +47,12 @@ def _slug(message_id: int) -> str:
     return f"zulip-{message_id}"
 
 
-def _post_file(reply_to: str | None, body: str) -> str:
+def _post_file(reply_to: str | None, body: str, link: str | None = None) -> str:
     lines = ["---"]
     if reply_to:
         lines.append(f"reply_to: {reply_to}")
+    if link:
+        lines.append(f"link: {link}")
     lines.append("---")
     lines.append("")
     lines.append(body.strip())
@@ -56,14 +60,30 @@ def _post_file(reply_to: str | None, body: str) -> str:
     return "\n".join(lines)
 
 
+_URL_RE = re.compile(r'https?://[^\s<>()\[\]"\']+')
+
+
+def _first_url(text: str) -> str | None:
+    m = _URL_RE.search(text or "")
+    return m.group(0).rstrip('.,);:]') if m else None
+
+
+def _agent_post(raw: str, wiki_site: str) -> "tuple[str, str | None]":
+    """(body, link) for the agent post: a short answer (minus the 📄/PR lines) as the
+    body, and the research wiki page URL as the link so it survives the grapheme cap."""
+    body = "\n".join(ln for ln in (raw or "").splitlines()
+                     if not ln.lstrip().startswith(("📄", "PR:"))).strip()
+    urls = [u.rstrip('.,);:]') for u in _URL_RE.findall(raw or "")]
+    link = next((u for u in urls if wiki_site and wiki_site in u), None) or (urls[0] if urls else None)
+    return body, link
+
+
 class BlueskyMirror:
     """Mirrors one `#research` topic's messages to Bluesky, oldest-first."""
 
-    def __init__(self, cfg: config.Config, zc: "zulip.Zulip",
-                 intent_ask=None, git=wiki):
+    def __init__(self, cfg: config.Config, zc: "zulip.Zulip", git=wiki):
         self.cfg = cfg
         self.zc = zc
-        self.intent_ask = intent_ask or (lambda task: omp.ask(task))
         self.git = git
         self._operator_id: int | None = None
         self._agent_id: int | None = None
@@ -138,12 +158,29 @@ class BlueskyMirror:
         with open(path, encoding="utf-8") as f:
             return (json.load(f) or {}).get("url")
 
+    def _post_fields(self, clone_dir: str, slug: str) -> "tuple[str, str | None]":
+        """(body, link) as written to the post file — for the publish confirmation
+        so the operator sees the exact text that went live."""
+        path = self._post_path(clone_dir, slug)
+        if not os.path.exists(path):
+            return "", None
+        text = open(path, encoding="utf-8").read()
+        link = None
+        body = text
+        if text.startswith("---"):
+            fm, _sep, rest = text[3:].partition("\n---")
+            for line in fm.splitlines():
+                if line.startswith("link:"):
+                    link = line[len("link:"):].strip()
+            body = rest.lstrip("\n")
+        return body.strip(), link
+
     def _write_and_push(self, clone_dir: str, slug: str, message_id: int,
-                         body: str, reply_to: str | None) -> None:
+                         body: str, reply_to: str | None, link: str | None = None) -> None:
         path = self._post_path(clone_dir, slug)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
-            f.write(_post_file(reply_to, body))
+            f.write(_post_file(reply_to, body, link))
         self.git._git(["add", "-A"], cwd=clone_dir)
         self.git._git(["commit", "-m", f"mirror zulip:{message_id}"], cwd=clone_dir)
         self.git._git(["push", "origin", self.cfg.bluesky_branch], cwd=clone_dir)
@@ -186,29 +223,39 @@ class BlueskyMirror:
                 uri = self._published_uri(clone_dir, slug)
                 if uri is None:
                     return True  # committed but not yet published; retry next pass
-                self._confirm_published(stream_id, topic, msgs, clone_dir, slug)
+                self._confirm_published(stream_id, topic, msgs, clone_dir, slug, identity)
                 prev_at_uri = uri
                 continue
 
-            body = m.get("content", "")
+            raw = m.get("content", "")
             if identity == OPERATOR:
-                # The operator's header post is a single coherent question (<=300),
-                # composed by the intent step — not a title + body dump.
-                _title, body = intent.derive(body, ask=self.intent_ask)
-            self._write_and_push(clone_dir, slug, message_id, body, prev_at_uri)
+                body, link = raw, _first_url(raw)            # verbatim: link + comment
+            else:
+                body, link = _agent_post(raw, self.cfg.wiki_site_url)  # answer + wiki link
+            print(f"[mirror] {identity} zulip:{message_id}: writing body={body!r} "
+                  f"link={link!r} reply_to={prev_at_uri!r}", file=sys.stderr, flush=True)
+            self._write_and_push(clone_dir, slug, message_id, body, prev_at_uri, link)
             return True  # its AT-URI is unknown until CI publishes it; retry
         return False
 
     def _confirm_published(self, stream_id: int, topic: str, msgs: list,
-                           clone_dir: str, slug: str) -> None:
-        """Post the published post's Bluesky URL back into the topic, once — so the
-        operator sees it went live. Idempotent: skipped when a message already
-        carries that URL. Marked NO_MIRROR so it is not itself mirrored, and it is a
-        bot message so it never triggers a research run."""
+                           clone_dir: str, slug: str, identity: str) -> None:
+        """Echo the published post back into the topic, once — the Bluesky URL plus
+        the exact text that went live, so the operator can verify it. Idempotent:
+        skipped when a message already carries that URL. Marked NO_MIRROR so it is
+        not itself mirrored, and it is a bot message so it triggers no research."""
         url = self._published_url(clone_dir, slug)
         if not url or any(url in (mm.get("content") or "") for mm in msgs):
             return
-        self.zc.send_message(stream_id, topic, f"{NO_MIRROR}\n🦋 Published to Bluesky: {url}")
+        body, link = self._post_fields(clone_dir, slug)
+        lines = [NO_MIRROR, f"🦋 Published to Bluesky ({identity}): {url}"]
+        if body:
+            lines += ["Posted text:", body]
+        if link:
+            lines.append(f"🔗 {link}")
+        self.zc.send_message(stream_id, topic, "\n".join(lines))
+        print(f"[mirror] {identity} {slug}: published {url} body={body!r} link={link!r}",
+              file=sys.stderr, flush=True)
 
 
 __all__ = ["BlueskyMirror", "BlueskyMirrorError"]
