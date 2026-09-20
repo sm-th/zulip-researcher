@@ -7,6 +7,7 @@ pure function (`classify`) so it can be tested without any I/O.
 
 from __future__ import annotations
 
+import os
 import time
 import sys
 from dataclasses import dataclass
@@ -179,6 +180,8 @@ class Loop:
     def run(self) -> None:
         self._require_modes()
         print("[researcher] starting; scanning #research backlog", file=sys.stderr, flush=True)
+        print(f"[researcher] operator_id={self.operator_id} stream={self.cfg.research_stream!r} "
+              f"stream_id={self.stream_id}", file=sys.stderr, flush=True)
         handled = self.reconcile()
         print(f"[researcher] backlog scan done ({handled} dispatched); listening for events",
               file=sys.stderr, flush=True)
@@ -188,6 +191,12 @@ class Loop:
             try:
                 events, last = self.zc.get_events(queue_id, last)
                 for event in events:
+                    if os.environ.get("RESEARCHER_DEBUG"):
+                        dm = event.get("message") or {}
+                        print(f"[researcher] event #{event.get('id')} type={event.get('type')} "
+                              f"stream={dm.get('display_recipient')!r} topic={dm.get('subject')!r} "
+                              f"sender={dm.get('sender_id')} flags={event.get('flags')}",
+                              file=sys.stderr, flush=True)
                     t = self._trigger_from_event(event)
                     if t is not None:
                         action = self._safe_dispatch(t)
