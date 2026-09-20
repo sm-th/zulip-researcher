@@ -205,3 +205,12 @@ def test_other_users_are_ignored_and_never_break_the_chain(tmp_path):
     # the agent's reply threads directly under the operator's post, skipping message 150
     content = open(os.path.join(agent_dir, "posts", "zulip-101.md")).read()
     assert content == f"---\nreply_to: {uri}\n---\n\nA1\n"
+
+
+def test_marked_messages_are_never_mirrored(tmp_path):
+    from zulip_researcher.bluesky_mirror import NO_MIRROR
+    messages = [{"id": 200, "sender_id": AGENT_ID,
+                 "content": NO_MIRROR + "\n**Follow-ups** — pursue these"}]
+    m, git, _p, _c = _mirror(tmp_path, messages)
+    m.mirror_topic("research", "t")
+    assert not any(call[0][0] == "commit" for call in git.calls)

@@ -31,6 +31,11 @@ from .prepare import PreparationClient
 OPERATOR = "operator"
 AGENT = "agent"
 
+# A Zulip message whose raw content carries this sentinel is never mirrored to
+# Bluesky (e.g. research follow-ups). Zulip strips HTML comments from the rendered
+# message, so it is invisible in chat but present in the apply_markdown=False body.
+NO_MIRROR = "<!-- no-mirror -->"
+
 
 class BlueskyMirrorError(RuntimeError):
     pass
@@ -152,6 +157,8 @@ class BlueskyMirror:
         stream_id = self.zc.get_stream_id(stream)
         prev_at_uri: str | None = None
         for m in self.zc.get_messages(stream_id, topic):
+            if NO_MIRROR in (m.get("content") or ""):
+                continue  # e.g. research follow-ups: never mirrored
             identity = self._identity(m.get("sender_id"))
             if identity is None:
                 continue
