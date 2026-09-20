@@ -42,8 +42,6 @@ def main() -> int:
 
     try:
         cfg = config.load()
-        if cmd in ("run", "once"):
-            cfg.validate_for_publish()
     except config.ConfigError as e:
         print(str(e), file=sys.stderr)
         return 2
